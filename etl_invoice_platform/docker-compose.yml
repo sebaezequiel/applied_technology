@@ -1,6 +1,6 @@
 services:
   minio:
-    image: quay.io/minio/minio:latest
+    image: minio/minio:latest
     container_name: minio_etl
     ports:
       - "9000:9000"   # API S3 (usado por la app Python)
