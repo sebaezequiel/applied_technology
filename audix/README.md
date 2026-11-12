@@ -62,4 +62,6 @@ node --test tests\racha.test.js
 - [x] Reproductor con voz del sistema (Web Speech API)
 - [x] Racha y mascota según estado (dormido, despertándose, auriculares, celebrando)
 - [x] Importar EPUB desde la app (botón Importar, también desde el celular)
+- [x] Portadas tomadas del EPUB, con opción de cambiarlas desde la app
+- [x] Borrar libros desde la app, con barra de progreso al importar
 - [ ] Soporte PDF (con y sin OCR)
