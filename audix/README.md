@@ -17,37 +17,28 @@ audix/
 │   ├── manifest.webmanifest
 │   ├── sw.js
 │   └── icons/
+├── iniciar-audix.bat   # Arranca API + PWA con doble clic
 ├── data/               # Libros procesados (no se versiona)
 └── tests/
 ```
 
 ## Puesta en marcha (Windows)
 
+Doble clic en `iniciar-audix.bat`. La primera vez crea el entorno virtual e instala las dependencias, y abre la app en el navegador de la PC.
+
+Desde el celular (misma Wi-Fi), abrí `http://IP_DE_TU_PC:8000`. La IP la ves con `ipconfig` en la "Dirección IPv4".
+
+Si preferís a mano:
+
 ```powershell
 cd audix
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
-uvicorn backend.main:app --reload
+uvicorn backend.main:app --host 0.0.0.0 --port 8000
 ```
 
-Después abrí `frontend/index.html` con un servidor local (por ejemplo `python -m http.server 8080 -d frontend`).
-
-## Usar desde el celular
-
-La PWA y la API tienen que estar en la misma red Wi-Fi que el celular.
-
-1. Averiguá la IP de tu PC: `ipconfig` y buscá la "Dirección IPv4" (por ejemplo `192.168.0.25`).
-2. Levantá la API escuchando en la red:
-   ```powershell
-   uvicorn backend.main:app --host 0.0.0.0 --reload
-   ```
-3. Levantá la PWA en la red:
-   ```powershell
-   python -m http.server 8080 --bind 0.0.0.0 -d frontend
-   ```
-4. En el celular, abrí `http://IP_DE_TU_PC:8080`.
-5. Si no carga, revisá que Windows Defender Firewall permita conexiones en los puertos 8000 y 8080 (red privada).
+Si no carga desde el celular, revisá que Windows Defender Firewall permita el puerto 8000 en red privada.
 
 Sin HTTPS, el navegador no registra el service worker, así que la app funciona pero no queda disponible sin conexión. Para instalarla como app y usarla offline hace falta publicarla con HTTPS, lo vemos más adelante.
 
