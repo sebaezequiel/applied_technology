@@ -3,7 +3,7 @@
 // Guarda el progreso por libro para retomar donde quedaste.
 
 const Lector = (() => {
-  const API = "http://127.0.0.1:8000";
+  const API = AUDIX_API;
   const trozosMaximos = 220;
 
   const estado = {

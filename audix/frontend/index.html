@@ -25,8 +25,10 @@
         <span aria-hidden="true">▶</span> Escuchar
       </button>
       <button type="button" class="boton-secundario" id="btn-importar">
-        + Importar PDF / EPUB
+        + Importar EPUB
       </button>
+      <input type="file" id="input-archivo" accept=".epub,application/epub+zip" hidden>
+      <p class="aviso" id="aviso-importar" aria-live="polite"></p>
     </div>
   </main>
 
@@ -85,6 +87,7 @@
     </section>
   </main>
 
+  <script src="config.js"></script>
   <script src="racha.js"></script>
   <script src="mascota.js"></script>
   <script src="lector.js"></script>

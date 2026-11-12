@@ -1,14 +1,34 @@
+import io
 import json
 import sys
 from pathlib import Path
 
 import pytest
+from ebooklib import epub
 from fastapi.testclient import TestClient
 
 RAIZ = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RAIZ))
 
 from backend import main  # noqa: E402
+
+
+def crear_epub_bytes(titulo: str, tmp_path: Path) -> bytes:
+    libro = epub.EpubBook()
+    libro.set_identifier(f"id-{titulo}")
+    libro.set_title(titulo)
+    libro.set_language("es")
+    libro.add_author("Autor de prueba")
+    capitulo = epub.EpubHtml(title="Uno", file_name="cap1.xhtml", lang="es")
+    capitulo.content = "<html><body><h1>Uno</h1><p>Texto del primer capítulo.</p></body></html>"
+    libro.add_item(capitulo)
+    libro.toc = (capitulo,)
+    libro.add_item(epub.EpubNcx())
+    libro.add_item(epub.EpubNav())
+    libro.spine = ["nav", capitulo]
+    ruta = tmp_path / "tmp.epub"
+    epub.write_epub(str(ruta), libro)
+    return ruta.read_bytes()
 
 
 @pytest.fixture
@@ -59,3 +79,52 @@ def test_libro_inexistente_devuelve_404(cliente):
 
 def test_capitulo_inexistente_devuelve_404(cliente):
     assert cliente.get("/libros/libro-prueba/capitulos/99").status_code == 404
+
+
+def test_importar_epub_lo_suma_a_la_biblioteca(cliente, tmp_path):
+    contenido = crear_epub_bytes("Mi libro nuevo", tmp_path)
+    respuesta = cliente.post(
+        "/libros",
+        files={"archivo": ("mi-libro.epub", contenido, "application/epub+zip")},
+    )
+    assert respuesta.status_code == 201
+    datos = respuesta.json()
+    assert datos["id"] == "mi-libro-nuevo"
+    assert datos["capitulos"] == 1
+
+    ids = [libro["id"] for libro in cliente.get("/libros").json()]
+    assert "mi-libro-nuevo" in ids
+
+    texto = cliente.get("/libros/mi-libro-nuevo/capitulos/1").json()["texto"]
+    assert "Texto del primer capítulo." in texto
+
+
+def test_importar_titulo_repetido_crea_otra_carpeta(cliente, tmp_path):
+    contenido = crear_epub_bytes("Repetido", tmp_path)
+    archivo = {"archivo": ("repetido.epub", contenido, "application/epub+zip")}
+    primera = cliente.post("/libros", files=archivo).json()
+    segunda = cliente.post("/libros", files=archivo).json()
+    assert primera["id"] == "repetido"
+    assert segunda["id"] == "repetido-2"
+
+
+def test_importar_rechaza_otros_formatos(cliente):
+    respuesta = cliente.post(
+        "/libros",
+        files={"archivo": ("libro.pdf", b"%PDF-1.4", "application/pdf")},
+    )
+    assert respuesta.status_code == 400
+
+
+def test_importar_epub_danado_devuelve_422(cliente):
+    respuesta = cliente.post(
+        "/libros",
+        files={"archivo": ("roto.epub", io.BytesIO(b"esto no es un epub"), "application/epub+zip")},
+    )
+    assert respuesta.status_code == 422
+
+
+def test_slug_quita_acentos_y_simbolos():
+    assert main._slug("La colina De Watership") == "la-colina-de-watership"
+    assert main._slug("Año ñandú: edición #2") == "ano-nandu-edicion-2"
+    assert main._slug("¡¡¡") == "libro"

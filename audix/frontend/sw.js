@@ -1,11 +1,12 @@
 // Service worker mínimo: deja la app instalable y disponible sin conexión
 // para los archivos estáticos. Las llamadas a la API no se cachean.
 
-const CACHE = "audix-v2";
+const CACHE = "audix-v3";
 const ESTATICOS = [
   "./",
   "index.html",
   "styles.css",
+  "config.js",
   "racha.js",
   "mascota.js",
   "lector.js",

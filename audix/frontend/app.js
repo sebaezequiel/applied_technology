@@ -1,6 +1,6 @@
 // Audix: navegación entre pantallas, biblioteca, racha y lector.
 
-const API = "http://127.0.0.1:8000";
+const API = AUDIX_API;
 const DIAS = ["L", "M", "X", "J", "V", "S", "D"];
 
 const pantallas = ["inicio", "biblioteca", "libro", "lector"];
@@ -88,6 +88,36 @@ async function abrirLibro(libroId) {
   mostrar("libro");
 }
 
+// ---------- Importar EPUB ----------
+
+async function importarEpub(archivo) {
+  const aviso = document.getElementById("aviso-importar");
+  const boton = document.getElementById("btn-importar");
+  aviso.textContent = `Procesando "${archivo.name}"… puede tardar unos segundos.`;
+  boton.disabled = true;
+
+  const formulario = new FormData();
+  formulario.append("archivo", archivo);
+
+  try {
+    const respuesta = await fetch(`${API}/libros`, { method: "POST", body: formulario });
+    const datos = await respuesta.json().catch(() => ({}));
+
+    if (!respuesta.ok) {
+      aviso.textContent = datos.detail || "No se pudo importar el libro.";
+      return;
+    }
+
+    aviso.textContent = `Listo: ${datos.titulo} (${datos.capitulos} capítulos).`;
+    mostrar("biblioteca");
+    renderBiblioteca();
+  } catch {
+    aviso.textContent = "No hay conexión con la API. ¿Está corriendo uvicorn?";
+  } finally {
+    boton.disabled = false;
+  }
+}
+
 // ---------- Lector ----------
 
 async function leerCapitulo(numero) {
@@ -134,8 +164,14 @@ function conectarEventos() {
     renderBiblioteca();
   });
 
+  const inputArchivo = document.getElementById("input-archivo");
   document.getElementById("btn-importar").addEventListener("click", () => {
-    alert("Importar llega en el próximo paso.");
+    inputArchivo.click();
+  });
+  inputArchivo.addEventListener("change", () => {
+    const archivo = inputArchivo.files[0];
+    inputArchivo.value = "";
+    if (archivo) importarEpub(archivo);
   });
 
   document.querySelectorAll("[data-volver]").forEach((boton) => {
