@@ -39,10 +39,18 @@ Después abrí `frontend/index.html` con un servidor local (por ejemplo `python 
 python backend\pipeline\epub_a_capitulos.py "C:\ruta\libro.epub" data\libro
 ```
 
+## Tests
+
+```powershell
+python -m pytest -q tests
+node --test tests\racha.test.js
+```
+
 ## Estado
 
 - [x] Script EPUB -> capítulos
-- [ ] API de subida y biblioteca
-- [ ] Reproductor con voz del sistema (Web Speech API)
-- [ ] Racha y mascota según estado
+- [x] API de biblioteca y lectura de capítulos
+- [x] Reproductor con voz del sistema (Web Speech API)
+- [x] Racha y mascota según estado (dormido, despertándose, auriculares, celebrando)
+- [ ] Subida de libros desde la app (botón Importar)
 - [ ] Soporte PDF (con y sin OCR)

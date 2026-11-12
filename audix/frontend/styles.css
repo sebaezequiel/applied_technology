@@ -15,6 +15,8 @@ body {
   color: var(--tinta);
 }
 
+[hidden] { display: none !important; }
+
 .pantalla {
   min-height: 100dvh;
   display: flex;
@@ -24,6 +26,8 @@ body {
   max-width: 480px;
   margin: 0 auto;
 }
+
+/* ---------- Inicio ---------- */
 
 .mascota {
   display: flex;
@@ -42,13 +46,14 @@ body {
   overflow: hidden;
   background: #fff;
   border: 3px solid var(--tinta);
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.mascota-circulo img {
+.mascota-circulo svg {
   width: 100%;
   height: 100%;
-  object-fit: cover;
-  display: block;
 }
 
 .racha-titulo { margin: 0; font-size: 15px; font-weight: 700; }
@@ -85,6 +90,8 @@ body {
   border: none;
 }
 
+/* ---------- Botones comunes ---------- */
+
 .acciones {
   margin-top: auto;
   display: flex;
@@ -93,9 +100,14 @@ body {
 }
 
 button {
-  width: 100%;
   font-family: inherit;
   cursor: pointer;
+}
+
+.boton-principal,
+.boton-secundario,
+.control {
+  width: 100%;
   border-radius: 18px;
 }
 
@@ -115,4 +127,140 @@ button {
   color: var(--tinta);
   font-size: 16px;
   font-weight: 600;
+}
+
+/* ---------- Encabezados y listas ---------- */
+
+.encabezado {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.encabezado h1 {
+  margin: 0;
+  font-size: 20px;
+  line-height: 1.2;
+}
+
+.volver {
+  width: 44px;
+  height: 44px;
+  flex: none;
+  border: 1px solid var(--borde);
+  border-radius: 50%;
+  background: #fff;
+  font-size: 18px;
+}
+
+.autor, .aviso {
+  margin: 0;
+  font-size: 13px;
+  color: var(--gris);
+}
+
+.lista {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.item-libro,
+.item-capitulo {
+  width: 100%;
+  text-align: left;
+  background: #fff;
+  border: 1px solid var(--borde);
+  border-radius: 16px;
+  padding: 14px 16px;
+  color: var(--tinta);
+  font-size: 15px;
+}
+
+.item-libro strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.item-libro span {
+  font-size: 12px;
+  color: var(--gris);
+}
+
+/* ---------- Lector ---------- */
+
+.reproductor {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  background: #fff;
+  border: 1px solid var(--borde);
+  border-radius: 20px;
+  padding: 20px;
+}
+
+.capitulo-actual {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.progreso-texto {
+  margin: 0;
+  font-size: 12px;
+  color: var(--gris);
+}
+
+.barra {
+  height: 8px;
+  border-radius: 4px;
+  background: #efebe1;
+  overflow: hidden;
+}
+
+.barra-relleno {
+  height: 100%;
+  width: 0;
+  background: var(--clay);
+  transition: width 0.3s ease;
+}
+
+.controles {
+  display: grid;
+  grid-template-columns: 1fr 2fr 1fr;
+  gap: 10px;
+}
+
+.control {
+  height: 56px;
+  border: 1px solid var(--borde);
+  background: #fff;
+  color: var(--tinta);
+  font-size: 16px;
+}
+
+.control-principal {
+  background: var(--tinta);
+  color: var(--fondo);
+  border: 0;
+  font-weight: 700;
+}
+
+.campo {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--gris);
+}
+
+.campo select {
+  height: 44px;
+  border: 1px solid var(--borde);
+  border-radius: 12px;
+  padding: 0 10px;
+  background: #fff;
+  color: var(--tinta);
+  font-size: 15px;
+  font-family: inherit;
 }

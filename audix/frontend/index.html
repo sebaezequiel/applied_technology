@@ -10,12 +10,10 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+  <!-- Inicio: mascota, racha y acciones principales -->
   <main class="pantalla" id="inicio">
     <section class="mascota" aria-label="Mascota y racha">
-      <div class="mascota-circulo">
-        <!-- Imagen del hurón; cambia según el estado de la racha -->
-        <img id="mascota-img" alt="Mascota: hurón con bufanda" src="icons/icon-192.png">
-      </div>
+      <div class="mascota-circulo" id="mascota"></div>
       <p class="racha-titulo" id="racha-titulo">Racha: 0 días</p>
       <p class="racha-detalle" id="racha-detalle">Escuchá hoy para empezar tu racha</p>
     </section>
@@ -29,11 +27,68 @@
       <button type="button" class="boton-secundario" id="btn-importar">
         + Importar PDF / EPUB
       </button>
-      <input type="file" id="input-archivo" accept=".epub,.pdf" hidden>
     </div>
   </main>
 
-  <script src="app.js" defer></script>
+  <!-- Biblioteca: libros disponibles -->
+  <main class="pantalla" id="biblioteca" hidden>
+    <header class="encabezado">
+      <button type="button" class="volver" data-volver="inicio" aria-label="Volver">←</button>
+      <h1>Biblioteca</h1>
+    </header>
+    <p class="aviso" id="aviso-biblioteca"></p>
+    <div class="lista" id="lista-libros"></div>
+  </main>
+
+  <!-- Libro: capítulos -->
+  <main class="pantalla" id="libro" hidden>
+    <header class="encabezado">
+      <button type="button" class="volver" data-volver="biblioteca" aria-label="Volver">←</button>
+      <h1 id="titulo-libro"></h1>
+    </header>
+    <p class="autor" id="autor-libro"></p>
+    <div class="lista" id="lista-capitulos"></div>
+  </main>
+
+  <!-- Lector: reproducción en voz alta -->
+  <main class="pantalla" id="lector" hidden>
+    <header class="encabezado">
+      <button type="button" class="volver" data-volver="libro" aria-label="Volver">←</button>
+      <h1 id="titulo-lector"></h1>
+    </header>
+
+    <section class="reproductor">
+      <p class="capitulo-actual" id="capitulo-actual"></p>
+      <p class="progreso-texto" id="progreso-lector"></p>
+      <div class="barra"><div class="barra-relleno" id="barra-progreso"></div></div>
+
+      <div class="controles">
+        <button type="button" class="control" id="btn-anterior" aria-label="Capítulo anterior">⏮</button>
+        <button type="button" class="control control-principal" id="btn-reproducir">▶ Reproducir</button>
+        <button type="button" class="control" id="btn-siguiente" aria-label="Capítulo siguiente">⏭</button>
+      </div>
+
+      <label class="campo">
+        Velocidad
+        <select id="selector-velocidad">
+          <option value="0.8">0.8×</option>
+          <option value="1" selected>1×</option>
+          <option value="1.25">1.25×</option>
+          <option value="1.5">1.5×</option>
+        </select>
+      </label>
+
+      <label class="campo">
+        Voz
+        <select id="selector-voz"></select>
+      </label>
+    </section>
+  </main>
+
+  <script src="racha.js"></script>
+  <script src="mascota.js"></script>
+  <script src="lector.js"></script>
+  <script src="app.js"></script>
   <script>
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.register("sw.js");
