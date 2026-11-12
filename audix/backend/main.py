@@ -14,13 +14,13 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from backend.pipeline.epub_a_capitulos import procesar_epub
 
-DATA_DIR = Path(
-    os.environ.get("AUDIX_DATA_DIR")
-    or Path(__file__).resolve().parent.parent / "data"
-)
+RAIZ = Path(__file__).resolve().parent.parent
+DATA_DIR = Path(os.environ.get("AUDIX_DATA_DIR") or RAIZ / "data")
+FRONTEND_DIR = RAIZ / "frontend"
 TAMANO_MAXIMO = 50 * 1024 * 1024  # 50 MB
 
 app = FastAPI(title="Audix", version="0.3.0")
@@ -131,3 +131,8 @@ def texto_capitulo(libro_id: str, numero: int) -> dict:
 
     archivo = DATA_DIR / libro_id / capitulo["archivo"]
     return {**capitulo, "texto": archivo.read_text(encoding="utf-8")}
+
+
+# La PWA se sirve desde la misma API, así alcanza un solo proceso y un solo puerto.
+# Va al final: el mount en "/" tiene que quedar después de las rutas de la API.
+app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
