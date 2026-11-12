@@ -1,21 +1,22 @@
 """
 Convierte un EPUB en texto limpio, dividido por capítulos.
 
-Uso:
+Uso desde la terminal:
     python epub_a_capitulos.py libro.epub
     python epub_a_capitulos.py libro.epub carpeta_salida
 
 Genera en la carpeta de salida:
     001.txt, 002.txt, ...  (un archivo por capítulo)
     indice.json            (título, autor y lista de capítulos)
+
+La API usa la misma función `procesar_epub`.
 """
 
 import json
 import re
 import sys
-from pathlib import Path
-
 import warnings
+from pathlib import Path
 
 from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
 from ebooklib import ITEM_DOCUMENT, epub
@@ -65,14 +66,8 @@ def metadato(libro, nombre: str) -> str:
     return valores[0][0] if valores else ""
 
 
-def main():
-    if len(sys.argv) < 2:
-        print("Uso: python epub_a_capitulos.py libro.epub [carpeta_salida]")
-        sys.exit(1)
-
-    origen = Path(sys.argv[1])
-    destino = Path(sys.argv[2]) if len(sys.argv) > 2 else origen.parent / origen.stem
-
+def procesar_epub(origen: Path, destino: Path) -> dict:
+    """Escribe los capítulos y el indice.json en `destino` y devuelve el índice."""
     libro = epub.read_epub(str(origen))
     documentos = {
         item.get_id(): item for item in libro.get_items_of_type(ITEM_DOCUMENT)
@@ -110,10 +105,22 @@ def main():
     (destino / "indice.json").write_text(
         json.dumps(indice, ensure_ascii=False, indent=2), encoding="utf-8"
     )
+    return indice
 
-    total = sum(c["caracteres"] for c in capitulos)
+
+def main():
+    if len(sys.argv) < 2:
+        print("Uso: python epub_a_capitulos.py libro.epub [carpeta_salida]")
+        sys.exit(1)
+
+    origen = Path(sys.argv[1])
+    destino = Path(sys.argv[2]) if len(sys.argv) > 2 else origen.parent / origen.stem
+
+    indice = procesar_epub(origen, destino)
+
+    total = sum(c["caracteres"] for c in indice["capitulos"])
     print(f"Libro: {indice['titulo']} ({indice['autor'] or 'autor desconocido'})")
-    print(f"Capítulos extraídos: {len(capitulos)} | caracteres totales: {total:,}")
+    print(f"Capítulos extraídos: {len(indice['capitulos'])} | caracteres totales: {total:,}")
     print(f"Salida: {destino}")
 
 

@@ -33,6 +33,24 @@ uvicorn backend.main:app --reload
 
 Después abrí `frontend/index.html` con un servidor local (por ejemplo `python -m http.server 8080 -d frontend`).
 
+## Usar desde el celular
+
+La PWA y la API tienen que estar en la misma red Wi-Fi que el celular.
+
+1. Averiguá la IP de tu PC: `ipconfig` y buscá la "Dirección IPv4" (por ejemplo `192.168.0.25`).
+2. Levantá la API escuchando en la red:
+   ```powershell
+   uvicorn backend.main:app --host 0.0.0.0 --reload
+   ```
+3. Levantá la PWA en la red:
+   ```powershell
+   python -m http.server 8080 --bind 0.0.0.0 -d frontend
+   ```
+4. En el celular, abrí `http://IP_DE_TU_PC:8080`.
+5. Si no carga, revisá que Windows Defender Firewall permita conexiones en los puertos 8000 y 8080 (red privada).
+
+Sin HTTPS, el navegador no registra el service worker, así que la app funciona pero no queda disponible sin conexión. Para instalarla como app y usarla offline hace falta publicarla con HTTPS, lo vemos más adelante.
+
 ## Procesar un EPUB sin la API
 
 ```powershell
@@ -52,5 +70,5 @@ node --test tests\racha.test.js
 - [x] API de biblioteca y lectura de capítulos
 - [x] Reproductor con voz del sistema (Web Speech API)
 - [x] Racha y mascota según estado (dormido, despertándose, auriculares, celebrando)
-- [ ] Subida de libros desde la app (botón Importar)
+- [x] Importar EPUB desde la app (botón Importar, también desde el celular)
 - [ ] Soporte PDF (con y sin OCR)
