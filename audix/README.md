@@ -40,13 +40,14 @@ La PWA y la API tienen que estar en la misma red Wi-Fi que el celular.
 1. Averiguá la IP de tu PC: `ipconfig` y buscá la "Dirección IPv4" (por ejemplo `192.168.0.25`).
 2. Levantá la API escuchando en la red:
    ```powershell
+   .venv\Scripts\activate
    uvicorn backend.main:app --host 0.0.0.0 --reload
    ```
 3. Levantá la PWA en la red:
    ```powershell
    python -m http.server 8080 --bind 0.0.0.0 -d frontend
    ```
-4. En el celular, abrí `http://IP_DE_TU_PC:8080`.
+4. En el celular, abrí `http://192.168.0.39:8080`.
 5. Si no carga, revisá que Windows Defender Firewall permita conexiones en los puertos 8000 y 8080 (red privada).
 
 Sin HTTPS, el navegador no registra el service worker, así que la app funciona pero no queda disponible sin conexión. Para instalarla como app y usarla offline hace falta publicarla con HTTPS, lo vemos más adelante.
