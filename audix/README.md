@@ -26,7 +26,7 @@ audix/
 
 Doble clic en `iniciar-audix.bat`. La primera vez crea el entorno virtual e instala las dependencias, y abre la app en el navegador de la PC.
 
-Desde el celular (misma Wi-Fi), abrí `http://IP_DE_TU_PC:8000`. La IP la ves con `ipconfig` en la "Dirección IPv4".
+Desde el celular (misma Wi-Fi), abrí `http://192.168.0.39:8000`. La IP la ves con `ipconfig` en la "Dirección IPv4".
 
 Si preferís a mano:
 
