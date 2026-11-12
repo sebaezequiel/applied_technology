@@ -28,6 +28,7 @@
         + Importar EPUB
       </button>
       <input type="file" id="input-archivo" accept=".epub,application/epub+zip" hidden>
+      <progress class="progreso-importar" id="progreso-importar" max="100" value="0" hidden></progress>
       <p class="aviso" id="aviso-importar" aria-live="polite"></p>
     </div>
   </main>
@@ -48,7 +49,16 @@
       <button type="button" class="volver" data-volver="biblioteca" aria-label="Volver">←</button>
       <h1 id="titulo-libro"></h1>
     </header>
-    <p class="autor" id="autor-libro"></p>
+    <div class="cabecera-libro">
+      <div id="portada-libro"></div>
+      <div class="datos-libro">
+        <p class="autor" id="autor-libro"></p>
+        <button type="button" class="boton-secundario" id="btn-cambiar-portada">Cambiar portada</button>
+        <button type="button" class="boton-peligro" id="btn-borrar-libro">Borrar libro</button>
+      </div>
+    </div>
+    <p class="aviso" id="aviso-libro" aria-live="polite"></p>
+    <input type="file" id="input-portada" accept="image/jpeg,image/png,image/webp" hidden>
     <div class="lista" id="lista-capitulos"></div>
   </main>
 

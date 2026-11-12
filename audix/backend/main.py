@@ -1,7 +1,8 @@
-"""API de Audix: biblioteca, lectura de capítulos e importación de EPUB.
+"""API de Audix: biblioteca, lectura de capítulos, importación, portadas y borrado.
 
-Los libros se guardan en `data/`, donde el pipeline deja un `indice.json`
-y un `.txt` por capítulo. Para usar otra carpeta, definí AUDIX_DATA_DIR.
+Los libros se guardan en `data/`, donde el pipeline deja un `indice.json`,
+un `.txt` por capítulo y, si el EPUB trae una, la `portada.<ext>`.
+Para usar otra carpeta, definí AUDIX_DATA_DIR.
 """
 
 import json
@@ -14,6 +15,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from backend.pipeline.epub_a_capitulos import procesar_epub
@@ -21,25 +23,41 @@ from backend.pipeline.epub_a_capitulos import procesar_epub
 RAIZ = Path(__file__).resolve().parent.parent
 DATA_DIR = Path(os.environ.get("AUDIX_DATA_DIR") or RAIZ / "data")
 FRONTEND_DIR = RAIZ / "frontend"
-TAMANO_MAXIMO = 50 * 1024 * 1024  # 50 MB
+TAMANO_MAXIMO = 50 * 1024 * 1024  # 50 MB para EPUB
+TAMANO_PORTADA = 5 * 1024 * 1024  # 5 MB para portadas
+EXTENSIONES_PORTADA = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}
+ID_LIBRO = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 
-app = FastAPI(title="Audix", version="0.3.0")
+app = FastAPI(title="Audix", version="0.4.0")
 
 # La PWA corre en el navegador del celular o de la PC, con IP de red local.
 # Por eso se permiten orígenes de localhost y de redes privadas (192.168.x.x, 10.x.x.x, 172.16-31.x.x).
 app.add_middleware(
     CORSMiddleware,
     allow_origin_regex=r"https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)(:\d+)?",
-    allow_methods=["GET", "POST"],
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
     allow_headers=["*"],
 )
 
 
-def _leer_indice(libro_id: str) -> dict:
-    indice = DATA_DIR / libro_id / "indice.json"
-    if not indice.exists():
+def _carpeta_libro(libro_id: str) -> Path:
+    """Devuelve la carpeta del libro. Rechaza ids raros para no salir de DATA_DIR."""
+    if not ID_LIBRO.match(libro_id):
         raise HTTPException(status_code=404, detail="Libro no encontrado")
-    return json.loads(indice.read_text(encoding="utf-8"))
+    carpeta = DATA_DIR / libro_id
+    if not (carpeta / "indice.json").exists():
+        raise HTTPException(status_code=404, detail="Libro no encontrado")
+    return carpeta
+
+
+def _leer_indice(libro_id: str) -> dict:
+    return json.loads((_carpeta_libro(libro_id) / "indice.json").read_text(encoding="utf-8"))
+
+
+def _guardar_indice(carpeta: Path, indice: dict) -> None:
+    (carpeta / "indice.json").write_text(
+        json.dumps(indice, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
 
 
 def _slug(texto: str) -> str:
@@ -55,6 +73,10 @@ def _carpeta_libre(nombre_base: str) -> Path:
         candidato = DATA_DIR / f"{nombre_base}-{contador}"
         contador += 1
     return candidato
+
+
+def _url_portada(libro_id: str, datos: dict):
+    return f"/libros/{libro_id}/portada" if datos.get("portada") else None
 
 
 @app.get("/health")
@@ -74,6 +96,7 @@ def listar_libros() -> list[dict]:
             "titulo": datos.get("titulo", indice.parent.name),
             "autor": datos.get("autor", ""),
             "capitulos": len(datos.get("capitulos", [])),
+            "portada": _url_portada(indice.parent.name, datos),
         })
     return libros
 
@@ -81,11 +104,13 @@ def listar_libros() -> list[dict]:
 @app.post("/libros", status_code=201)
 def importar_libro(archivo: UploadFile) -> dict:
     if not archivo.filename or not archivo.filename.lower().endswith(".epub"):
-        raise HTTPException(status_code=400, detail="Solo se aceptan archivos EPUB")
+        raise HTTPException(status_code=400, detail="Solo se aceptan archivos EPUB (terminan en .epub)")
 
     contenido = archivo.file.read(TAMANO_MAXIMO + 1)
     if len(contenido) > TAMANO_MAXIMO:
         raise HTTPException(status_code=413, detail="El archivo supera los 50 MB")
+    if not contenido:
+        raise HTTPException(status_code=400, detail="El archivo está vacío")
 
     with tempfile.TemporaryDirectory() as temporal:
         origen = Path(temporal) / "libro.epub"
@@ -97,11 +122,14 @@ def importar_libro(archivo: UploadFile) -> dict:
         except Exception as error:
             raise HTTPException(
                 status_code=422,
-                detail=f"No se pudo procesar el EPUB: {error}",
+                detail=f"No se pudo leer el EPUB. ¿Está completo y no protegido? Detalle: {error}",
             ) from error
 
         if not indice["capitulos"]:
-            raise HTTPException(status_code=422, detail="El EPUB no tiene texto para leer")
+            raise HTTPException(
+                status_code=422,
+                detail="El EPUB no tiene texto para leer (puede ser una imagen escaneada o estar vacío).",
+            )
 
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         destino = _carpeta_libre(_slug(indice["titulo"]))
@@ -112,12 +140,50 @@ def importar_libro(archivo: UploadFile) -> dict:
         "titulo": indice["titulo"],
         "autor": indice["autor"],
         "capitulos": len(indice["capitulos"]),
+        "portada": _url_portada(destino.name, indice),
     }
 
 
 @app.get("/libros/{libro_id}")
 def detalle_libro(libro_id: str) -> dict:
-    return {"id": libro_id, **_leer_indice(libro_id)}
+    datos = _leer_indice(libro_id)
+    return {"id": libro_id, **datos, "portada": _url_portada(libro_id, datos)}
+
+
+@app.delete("/libros/{libro_id}", status_code=204)
+def borrar_libro(libro_id: str) -> Response:
+    shutil.rmtree(_carpeta_libro(libro_id))
+    return Response(status_code=204)
+
+
+@app.get("/libros/{libro_id}/portada")
+def ver_portada(libro_id: str) -> FileResponse:
+    datos = _leer_indice(libro_id)
+    if not datos.get("portada"):
+        raise HTTPException(status_code=404, detail="Este libro no tiene portada")
+    return FileResponse(_carpeta_libro(libro_id) / datos["portada"])
+
+
+@app.put("/libros/{libro_id}/portada")
+def cambiar_portada(libro_id: str, archivo: UploadFile) -> dict:
+    carpeta = _carpeta_libro(libro_id)
+    extension = Path(archivo.filename or "").suffix.lower()
+    if extension not in EXTENSIONES_PORTADA:
+        raise HTTPException(status_code=400, detail="La portada tiene que ser JPG, PNG o WebP")
+
+    contenido = archivo.file.read(TAMANO_PORTADA + 1)
+    if len(contenido) > TAMANO_PORTADA:
+        raise HTTPException(status_code=413, detail="La portada supera los 5 MB")
+
+    for anterior in carpeta.glob("portada.*"):
+        anterior.unlink()
+    nombre = f"portada{'.jpg' if extension == '.jpeg' else extension}"
+    (carpeta / nombre).write_bytes(contenido)
+
+    indice = _leer_indice(libro_id)
+    indice["portada"] = nombre
+    _guardar_indice(carpeta, indice)
+    return {"portada": _url_portada(libro_id, indice)}
 
 
 @app.get("/libros/{libro_id}/capitulos/{numero}")
@@ -129,7 +195,7 @@ def texto_capitulo(libro_id: str, numero: int) -> dict:
     if capitulo is None:
         raise HTTPException(status_code=404, detail="Capítulo no encontrado")
 
-    archivo = DATA_DIR / libro_id / capitulo["archivo"]
+    archivo = _carpeta_libro(libro_id) / capitulo["archivo"]
     return {**capitulo, "texto": archivo.read_text(encoding="utf-8")}
 
 

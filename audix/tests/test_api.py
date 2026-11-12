@@ -57,7 +57,7 @@ def test_health(cliente):
 def test_lista_libros(cliente):
     libros = cliente.get("/libros").json()
     assert libros == [
-        {"id": "libro-prueba", "titulo": "Libro de prueba", "autor": "Autor", "capitulos": 1}
+        {"id": "libro-prueba", "titulo": "Libro de prueba", "autor": "Autor", "capitulos": 1, "portada": None}
     ]
 
 
@@ -128,3 +128,82 @@ def test_slug_quita_acentos_y_simbolos():
     assert main._slug("La colina De Watership") == "la-colina-de-watership"
     assert main._slug("Año ñandú: edición #2") == "ano-nandu-edicion-2"
     assert main._slug("¡¡¡") == "libro"
+
+
+PNG_MINIMO = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
+
+
+def test_portada_inexistente_devuelve_404(cliente):
+    assert cliente.get("/libros/libro-prueba/portada").status_code == 404
+
+
+def test_subir_portada_y_verla(cliente):
+    respuesta = cliente.put(
+        "/libros/libro-prueba/portada",
+        files={"archivo": ("tapa.png", PNG_MINIMO, "image/png")},
+    )
+    assert respuesta.status_code == 200
+    assert respuesta.json() == {"portada": "/libros/libro-prueba/portada"}
+
+    imagen = cliente.get("/libros/libro-prueba/portada")
+    assert imagen.status_code == 200
+    assert imagen.content == PNG_MINIMO
+    assert cliente.get("/libros").json()[0]["portada"] == "/libros/libro-prueba/portada"
+
+
+def test_cambiar_portada_reemplaza_la_anterior(cliente, tmp_path):
+    cliente.put("/libros/libro-prueba/portada", files={"archivo": ("a.png", PNG_MINIMO, "image/png")})
+    cliente.put("/libros/libro-prueba/portada", files={"archivo": ("b.jpg", b"\xff\xd8nuevo", "image/jpeg")})
+    carpeta = tmp_path / "libro-prueba"
+    assert sorted(p.name for p in carpeta.glob("portada.*")) == ["portada.jpg"]
+
+
+def test_portada_con_formato_no_permitido_devuelve_400(cliente):
+    respuesta = cliente.put(
+        "/libros/libro-prueba/portada",
+        files={"archivo": ("tapa.bmp", b"BM", "image/bmp")},
+    )
+    assert respuesta.status_code == 400
+
+
+def test_importar_epub_con_portada_la_guarda(cliente, tmp_path):
+    from ebooklib import epub as ebooklib_epub
+
+    libro = ebooklib_epub.EpubBook()
+    libro.set_identifier("con-tapa")
+    libro.set_title("Con tapa")
+    libro.set_language("es")
+    libro.set_cover("tapa.png", PNG_MINIMO)
+    capitulo = ebooklib_epub.EpubHtml(title="Uno", file_name="cap1.xhtml", lang="es")
+    capitulo.content = "<html><body><h1>Uno</h1><p>Texto.</p></body></html>"
+    libro.add_item(capitulo)
+    libro.toc = (capitulo,)
+    libro.add_item(ebooklib_epub.EpubNcx())
+    libro.add_item(ebooklib_epub.EpubNav())
+    libro.spine = ["nav", capitulo]
+    ruta = tmp_path / "con-tapa.epub"
+    ebooklib_epub.write_epub(str(ruta), libro)
+
+    respuesta = cliente.post(
+        "/libros",
+        files={"archivo": ("con-tapa.epub", ruta.read_bytes(), "application/epub+zip")},
+    )
+    assert respuesta.status_code == 201
+    assert respuesta.json()["portada"] == "/libros/con-tapa/portada"
+    assert cliente.get("/libros/con-tapa/portada").status_code == 200
+
+
+def test_borrar_libro(cliente, tmp_path):
+    assert cliente.delete("/libros/libro-prueba").status_code == 204
+    assert not (tmp_path / "libro-prueba").exists()
+    assert cliente.get("/libros/libro-prueba").status_code == 404
+
+
+def test_borrar_libro_inexistente_devuelve_404(cliente):
+    assert cliente.delete("/libros/no-existe").status_code == 404
+
+
+def test_ids_con_rutas_raras_devuelven_404(cliente):
+    assert cliente.get("/libros/a.b").status_code == 404
+    assert cliente.get("/libros/Libro-Prueba").status_code == 404
+    assert cliente.delete("/libros/a.b").status_code == 404

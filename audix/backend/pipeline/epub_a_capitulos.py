@@ -66,6 +66,40 @@ def metadato(libro, nombre: str) -> str:
     return valores[0][0] if valores else ""
 
 
+EXTENSIONES_IMAGEN = {
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/gif": ".gif",
+    "image/webp": ".webp",
+}
+
+
+def extraer_portada(libro, destino: Path):
+    """Guarda la imagen de portada del EPUB como `portada.<ext>`. Devuelve el nombre o None."""
+    candidatos = []
+
+    # 1) Lo que indica el propio EPUB: <meta name="cover" content="id-de-la-imagen"/>
+    for _valor, atributos in libro.get_metadata("OPF", "meta"):
+        if atributos.get("name") == "cover":
+            item = libro.get_item_with_id(atributos.get("content", ""))
+            if item is not None:
+                candidatos.append(item)
+
+    # 2) Plan B: alguna imagen cuyo nombre o id diga "cover"
+    imagenes = [i for i in libro.get_items() if i.media_type in EXTENSIONES_IMAGEN]
+    for item in imagenes:
+        if "cover" in f"{item.get_id()} {item.get_name()}".lower():
+            candidatos.append(item)
+
+    for item in candidatos:
+        extension = EXTENSIONES_IMAGEN.get(item.media_type)
+        if extension:
+            nombre = f"portada{extension}"
+            (destino / nombre).write_bytes(item.get_content())
+            return nombre
+    return None
+
+
 def procesar_epub(origen: Path, destino: Path) -> dict:
     """Escribe los capítulos y el indice.json en `destino` y devuelve el índice."""
     libro = epub.read_epub(str(origen))
@@ -100,6 +134,7 @@ def procesar_epub(origen: Path, destino: Path) -> dict:
     indice = {
         "titulo": metadato(libro, "title") or origen.stem,
         "autor": metadato(libro, "creator"),
+        "portada": extraer_portada(libro, destino),
         "capitulos": capitulos,
     }
     (destino / "indice.json").write_text(
