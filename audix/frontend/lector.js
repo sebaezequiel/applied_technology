@@ -177,8 +177,11 @@ const Lector = (() => {
     estado.voz = voz;
   }
 
+  // Voces en español e inglés, para elegir en el selector.
   function vocesEspanol() {
-    return speechSynthesis.getVoices().filter((voz) => voz.lang.startsWith("es"));
+    return speechSynthesis
+      .getVoices()
+      .filter((voz) => voz.lang.startsWith("es") || voz.lang.startsWith("en"));
   }
 
   function progreso() {
