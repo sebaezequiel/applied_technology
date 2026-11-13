@@ -46,8 +46,11 @@ _PATRON_ROMANO = re.compile(
 # Número arábigo solo (1, 2, 10...)
 _PATRON_NUMERO = re.compile(r"^\s*\d{1,3}\s*$")
 
-# Línea que parece título en apuntes: corta, termina sin punto y empieza con mayúscula o número
-_PATRON_TITULO_APUNTES = re.compile(r"^[A-ZÁÉÍÓÚÑÜ0-9][\w\s,:\-áéíóúñü]{1,80}$")
+# Título numerado en apuntes: "1. Introducción", "2.3 Ejemplos", "3) Repaso"
+_PATRON_TITULO_NUMERADO = re.compile(r"^\d{1,2}(\.\d{1,2})*[.)]?\s+[A-ZÁÉÍÓÚÑÜ]")
+
+# Largo máximo de un título. Una línea más larga es casi seguro un párrafo.
+_LARGO_MAXIMO_TITULO = 60
 
 
 # ---------------------------------------------------------------------------
@@ -196,17 +199,29 @@ def _es_encabezado_novela(texto: str) -> bool:
 
 def _es_encabezado_apuntes(texto: str, tamano: float, tamano_cuerpo: float) -> bool:
     """
-    Un título de apuntes es:
-    - Texto corto (< 80 chars)
-    - Sin punto al final (no es una oración)
-    - Mayor tamaño de fuente que el cuerpo, O mayúsculas, O patrón de título
+    Un título de apuntes es una línea corta que no parece parte de una oración:
+    - Como máximo _LARGO_MAXIMO_TITULO caracteres
+    - No termina en puntuación de oración (. , ; : ?)
+    - Y además: letra más grande que el cuerpo, o toda en mayúsculas, o numerada ("2.1 Título")
     """
     t = texto.strip()
-    if not t or len(t) > 80 or t.endswith("."):
+    if not t or len(t) > _LARGO_MAXIMO_TITULO or t[-1] in ".,;:?!¿":
         return False
     es_grande = tamano > tamano_cuerpo + 0.5
     es_mayuscula = t.isupper() and len(t) > 2
-    return es_grande or es_mayuscula or bool(_PATRON_TITULO_APUNTES.match(t))
+    es_numerado = bool(_PATRON_TITULO_NUMERADO.match(t))
+    return es_grande or es_mayuscula or es_numerado
+
+
+def _titulo_de_respaldo(lineas: list[str], numero: int) -> str:
+    """
+    Título para un capítulo sin encabezado. Usa la primera línea solo si es corta
+    y no parece una oración; si no, usa "Capítulo N".
+    """
+    primera = next((linea.strip() for linea in lineas if linea.strip()), "")
+    if primera and len(primera) <= _LARGO_MAXIMO_TITULO and primera[-1] not in ".,;:?!¿":
+        return primera
+    return f"Capítulo {numero}"
 
 
 def _dividir_en_capitulos(
@@ -288,13 +303,20 @@ def _dividir_en_capitulos(
         capitulos.append((titulo_actual, bloque_actual))
 
     # Fusiona capítulos que solo tienen título y ningún texto
+    # Un título sin texto debajo no es un capítulo: su texto pasa a ser la primera
+    # línea del capítulo siguiente, que conserva su propio título.
     fusionados: list[tuple[str, list[str]]] = []
+    pendientes: list[str] = []
     for titulo, lineas in capitulos:
-        if fusionados and not fusionados[-1][1]:
-            titulo_prev, _ = fusionados.pop()
-            fusionados.append((f"{titulo_prev} · {titulo}" if titulo_prev else titulo, lineas))
-        else:
-            fusionados.append((titulo, lineas))
+        if not lineas:
+            if titulo:
+                pendientes.append(titulo)
+            continue
+        fusionados.append((titulo, pendientes + lineas))
+        pendientes = []
+    if pendientes and fusionados:
+        titulo_ultimo, lineas_ultimo = fusionados[-1]
+        fusionados[-1] = (titulo_ultimo, lineas_ultimo + pendientes)
 
     # Elimina capítulos que quedaron vacíos al final
     return [(t, l) for t, l in fusionados if l]
@@ -355,8 +377,7 @@ def procesar_pdf(origen: Path, destino: Path, tipo: str = "novela") -> dict:
 
         # Si el capítulo no tiene título, intenta tomarlo de la primera línea
         if not titulo:
-            primera_linea = lineas[0].strip() if lineas else ""
-            titulo = primera_linea if len(primera_linea) < 80 else ""
+            titulo = _titulo_de_respaldo(lineas, numero)
 
         capitulos.append({
             "numero": numero,
@@ -406,8 +427,7 @@ def previsualizar_pdf(origen: Path, tipo: str = "novela") -> list[dict]:
         if not texto.strip():
             continue
         if not titulo:
-            primera_linea = lineas[0].strip() if lineas else ""
-            titulo = primera_linea if len(primera_linea) < 80 else f"Capítulo {idx}"
+            titulo = _titulo_de_respaldo(lineas, len(resultado) + 1)
         resultado.append({"numero": len(resultado) + 1, "titulo": titulo, "caracteres": len(texto)})
 
     return resultado

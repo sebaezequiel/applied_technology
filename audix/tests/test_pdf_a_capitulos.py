@@ -188,3 +188,50 @@ def test_fusiona_capitulo_sin_texto():
     caps = _dividir_en_capitulos(paginas, "novela")
     # Debería haber un solo capítulo con ambos títulos fusionados
     assert len(caps) == 1
+
+
+# ---------------------------------------------------------------------------
+# Títulos: solo encabezados reales, nunca párrafos
+# ---------------------------------------------------------------------------
+
+from pdf_a_capitulos import _es_encabezado_apuntes, _titulo_de_respaldo  # noqa: E402
+
+
+def test_apuntes_no_toma_oracion_en_mayusculas_como_titulo():
+    texto = "¿POR QUÉ TRIUNFÓ LA ESCUELA? o la modernidad dijo: Esto es educación y la escuela respondió"
+    assert not _es_encabezado_apuntes(texto, 10, 10)
+
+
+def test_apuntes_no_toma_oracion_normal_como_titulo():
+    texto = "Dada la situación de la mayor parte de nuestras escuelas elementales"
+    assert not _es_encabezado_apuntes(texto, 10, 10)
+
+
+def test_apuntes_reconoce_titulo_numerado_y_mayusculas_cortas():
+    assert _es_encabezado_apuntes("2.1 Ejemplos de uso", 10, 10)
+    assert _es_encabezado_apuntes("INTRODUCCIÓN", 10, 10)
+
+
+def test_apuntes_no_toma_titulo_largo_aunque_sea_numerado():
+    texto = "1. " + "palabra " * 20
+    assert not _es_encabezado_apuntes(texto, 10, 10)
+
+
+def test_titulo_de_respaldo_usa_primera_linea_corta():
+    assert _titulo_de_respaldo(["LOS PERROS DE TÍNDALOS", "texto"], 1) == "LOS PERROS DE TÍNDALOS"
+
+
+def test_titulo_de_respaldo_no_usa_oracion():
+    lineas = ["Dada la situación de la mayor parte de nuestras escuelas elementales."]
+    assert _titulo_de_respaldo(lineas, 3) == "Capítulo 3"
+
+
+def test_titulo_sin_texto_pasa_al_texto_del_siguiente():
+    paginas = [
+        ["I"],
+        ["II", "Aquí empieza el texto."],
+    ]
+    caps = _dividir_en_capitulos(paginas, "novela")
+    assert len(caps) == 1
+    assert caps[0][0] == "II"
+    assert caps[0][1][0] == "I"  # el título sin texto queda como línea, no se pierde

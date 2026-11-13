@@ -321,3 +321,26 @@ def test_preview_pdf_con_reportlab(cliente, tmp_path):
     datos = respuesta.json()
     assert "capitulos" in datos
     assert datos["tipo"] == "cuento"
+
+
+def test_renombrar_libro_cambia_el_titulo(cliente, tmp_path):
+    respuesta = cliente.patch("/libros/libro-prueba", json={"titulo": "  Título corregido  "})
+    assert respuesta.status_code == 200
+    assert respuesta.json()["titulo"] == "Título corregido"
+    assert cliente.get("/libros/libro-prueba").json()["titulo"] == "Título corregido"
+    indice = json.loads((tmp_path / "libro-prueba" / "indice.json").read_text(encoding="utf-8"))
+    assert indice["titulo"] == "Título corregido"
+    # El resto del índice no se toca
+    assert indice["capitulos"][0]["archivo"] == "001.txt"
+
+
+def test_renombrar_libro_con_titulo_vacio_devuelve_400(cliente):
+    assert cliente.patch("/libros/libro-prueba", json={"titulo": "   "}).status_code == 400
+
+
+def test_renombrar_libro_con_titulo_muy_largo_devuelve_400(cliente):
+    assert cliente.patch("/libros/libro-prueba", json={"titulo": "x" * 201}).status_code == 400
+
+
+def test_renombrar_libro_inexistente_devuelve_404(cliente):
+    assert cliente.patch("/libros/no-existe", json={"titulo": "Nuevo"}).status_code == 404

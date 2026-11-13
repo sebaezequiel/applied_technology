@@ -184,6 +184,33 @@ async function cambiarPortada(archivo) {
   }
 }
 
+// Cambia el título guardado (por ejemplo, si la importación lo leyó mal).
+async function renombrarLibroActual() {
+  const nuevoTitulo = prompt("Nuevo título del libro:", libroActual.titulo);
+  if (nuevoTitulo === null) return; // canceló
+  if (!nuevoTitulo.trim()) {
+    mostrarAvisoLibro("El título no puede estar vacío.");
+    return;
+  }
+  try {
+    const respuesta = await fetch(`${API}/libros/${libroActual.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ titulo: nuevoTitulo }),
+    });
+    if (!respuesta.ok) {
+      mostrarAvisoLibro(await mensajeDeError(respuesta));
+      return;
+    }
+    const datos = await respuesta.json();
+    libroActual.titulo = datos.titulo;
+    pintarLibro();
+    mostrarAvisoLibro("Título actualizado.");
+  } catch {
+    mostrarAvisoLibro(mensajeConexion());
+  }
+}
+
 async function borrarLibroActual() {
   const titulo = libroActual.titulo;
   if (!confirm(`¿Borrar "${titulo}"? Se elimina de la PC y no se puede deshacer.`)) return;
@@ -530,6 +557,7 @@ function conectarEventos() {
     if (archivo) cambiarPortada(archivo);
   });
 
+  document.getElementById("btn-cambiar-titulo").addEventListener("click", renombrarLibroActual);
   document.getElementById("btn-borrar-libro").addEventListener("click", borrarLibroActual);
 
   document.querySelectorAll("[data-volver]").forEach((boton) => {
