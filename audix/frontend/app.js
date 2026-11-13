@@ -10,6 +10,7 @@ function mostrar(id) {
     document.getElementById(nombre).hidden = nombre !== id;
   });
   window.scrollTo(0, 0);
+  actualizarMini();
 }
 
 // ---------- Mensajes de error ----------
@@ -267,6 +268,9 @@ function importarEpub(archivo) {
 async function leerCapitulo(numero) {
   mostrar("lector");
   document.getElementById("titulo-lector").textContent = libroActual.titulo;
+  document
+    .getElementById("portada-lector")
+    .replaceChildren(crearPortada(libroActual.portada, libroActual.titulo, "portada-lector-img"));
   await Lector.abrir(libroActual.id, libroActual.capitulos.length, numero);
 }
 
@@ -280,6 +284,34 @@ function renderLector(estado) {
 
   const boton = document.getElementById("btn-reproducir");
   boton.textContent = estado.reproduciendo ? "❚❚ Pausa" : "▶ Reproducir";
+  actualizarMini();
+}
+
+// ---------- Mini reproductor (se ve al salir del lector mientras suena) ----------
+
+function actualizarMini() {
+  const barra = document.getElementById("mini-reproductor");
+  const enLector = !document.getElementById("lector").hidden;
+  const sonando = Lector.estado.reproduciendo && libroActual;
+  barra.hidden = !(sonando && !enLector);
+  if (barra.hidden) return;
+
+  const capitulo = libroActual.capitulos.find((c) => c.numero === Lector.estado.numero);
+  document
+    .getElementById("mini-portada")
+    .replaceChildren(crearPortada(libroActual.portada, libroActual.titulo, "portada-mini"));
+  document.getElementById("mini-titulo").textContent = libroActual.titulo;
+  document.getElementById("mini-capitulo").textContent =
+    capitulo ? `${capitulo.numero}. ${capitulo.titulo}` : "";
+  document.getElementById("mini-play").textContent = Lector.estado.reproduciendo ? "❚❚" : "▶";
+}
+
+function conectarMini() {
+  document.getElementById("mini-info").addEventListener("click", () => mostrar("lector"));
+  document.getElementById("mini-play").addEventListener("click", () => {
+    if (Lector.estado.reproduciendo) Lector.pausar();
+    else Lector.play();
+  });
 }
 
 function cargarVoces() {
@@ -366,6 +398,7 @@ function iniciar() {
   mostrar("inicio");
   cargarVoces();
   conectarEventos();
+  conectarMini();
 }
 
 document.addEventListener("DOMContentLoaded", iniciar);
