@@ -173,24 +173,12 @@ const Lector = (() => {
     }
   }
 
-  const CLAVE_VOZ = "audix-voz";
-
-  // Guarda el nombre de la voz para usarla también la próxima vez.
   function setVoz(voz) {
     estado.voz = voz;
-    if (voz) localStorage.setItem(CLAVE_VOZ, voz.name);
   }
 
-  function vozGuardada() {
-    return localStorage.getItem(CLAVE_VOZ);
-  }
-
-  // Todas las voces que expone el navegador, ordenadas por idioma y nombre.
-  function vocesDisponibles() {
-    return speechSynthesis
-      .getVoices()
-      .slice()
-      .sort((a, b) => a.lang.localeCompare(b.lang) || a.name.localeCompare(b.name));
+  function vocesEspanol() {
+    return speechSynthesis.getVoices().filter((voz) => voz.lang.startsWith("es"));
   }
 
   function progreso() {
@@ -214,8 +202,7 @@ const Lector = (() => {
     anterior,
     setVelocidad,
     setVoz,
-    vocesDisponibles,
-    vozGuardada,
+    vocesEspanol,
     progreso,
     onEscuchar,
     onCambio,

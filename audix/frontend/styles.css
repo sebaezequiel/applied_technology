@@ -357,32 +357,3 @@ button {
   height: 10px;
   accent-color: var(--clay);
 }
-
-.cabecera-lector {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-}
-
-.cabecera-lector .capitulo-actual {
-  margin: 0;
-}
-
-.portada-lector-img {
-  flex: none;
-  width: 64px;
-  height: 92px;
-  overflow: hidden;
-  border-radius: 8px;
-  background: #efebe0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 2px 8px rgba(43, 42, 39, 0.15);
-}
-
-.portada-lector-img img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
