@@ -2,13 +2,13 @@
 title Audix
 cd /d "%~dp0"
 
-if not exist ".venv\Scripts\activate.bat" (
-  echo Primera vez: creando entorno virtual e instalando dependencias...
-  python -m venv .venv
-  call .venv\Scripts\activate.bat
-  python -m pip install -r requirements.txt
+if not exist ".venv\Scripts\python.exe" (
+    echo Primera vez: creando entorno virtual e instalando dependencias...
+    python -m venv .venv
+    call .venv\Scripts\activate.bat
+    python -m pip install -r requirements.txt
 ) else (
-  call .venv\Scripts\activate.bat
+    call .venv\Scripts\activate.bat
 )
 
 echo.
@@ -18,5 +18,6 @@ echo Para apagar Audix, cerra esta ventana.
 echo.
 
 start "" http://localhost:8000
-uvicorn backend.main:app --host 0.0.0.0 --port 8000
+python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000
+
 pause
