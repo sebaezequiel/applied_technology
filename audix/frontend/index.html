@@ -70,6 +70,7 @@
     </header>
 
     <section class="reproductor">
+      <div id="portada-lector" class="portada-lector"></div>
       <p class="capitulo-actual" id="capitulo-actual"></p>
       <p class="progreso-texto" id="progreso-lector"></p>
       <div class="barra"><div class="barra-relleno" id="barra-progreso"></div></div>
@@ -96,6 +97,18 @@
       </label>
     </section>
   </main>
+
+  <!-- Mini reproductor: aparece fuera del lector mientras suena un capítulo -->
+  <div class="mini-reproductor" id="mini-reproductor" hidden>
+    <button type="button" class="mini-info" id="mini-info">
+      <span id="mini-portada"></span>
+      <span class="mini-texto">
+        <strong id="mini-titulo"></strong>
+        <small id="mini-capitulo"></small>
+      </span>
+    </button>
+    <button type="button" class="mini-play" id="mini-play" aria-label="Reproducir o pausar">▶</button>
+  </div>
 
   <script src="config.js"></script>
   <script src="racha.js"></script>

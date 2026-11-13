@@ -357,3 +357,90 @@ button {
   height: 10px;
   accent-color: var(--clay);
 }
+
+/* ---------- Portada en el lector y mini reproductor ---------- */
+
+.portada-lector {
+  display: flex;
+  justify-content: center;
+}
+
+.portada-lector-img {
+  width: 200px;
+  height: 290px;
+  overflow: hidden;
+  border-radius: 14px;
+  background: #efebe0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 6px 20px rgba(43, 42, 39, 0.2);
+}
+
+.portada-lector-img img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.mini-reproductor {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  max-width: 480px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px max(10px, env(safe-area-inset-bottom));
+  background: var(--tinta);
+  color: var(--fondo);
+  box-shadow: 0 -4px 16px rgba(43, 42, 39, 0.25);
+}
+
+.mini-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  text-align: left;
+}
+
+.mini-info .portada-mini {
+  width: 40px;
+  height: 56px;
+}
+
+.mini-texto {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.mini-texto strong,
+.mini-texto small {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.mini-texto small {
+  color: #c9c4b6;
+}
+
+.mini-play {
+  flex: none;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: 0;
+  background: var(--clay);
+  color: #fff;
+  font-size: 16px;
+}
