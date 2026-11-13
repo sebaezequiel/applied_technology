@@ -8,8 +8,11 @@ ebooklib>=0.18
 beautifulsoup4>=4.12.0
 lxml>=5.0.0
 
-# PDF (texto digital)
+# PDF: texto digital (pdfplumber) y escaneados (render con pymupdf, OCR con pytesseract;
+# requiere Tesseract instalado con el idioma spa)
 pdfplumber>=0.11.0
+pymupdf>=1.24.0
+pytesseract>=0.3.10
 
 # Utilidades
 python-dotenv>=1.0.0

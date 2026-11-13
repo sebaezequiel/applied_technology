@@ -11,6 +11,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "backend" / "pipeline"))
 
 from pdf_a_capitulos import (  # noqa: E402
+    _clave_repetida,
     _dividir_en_capitulos,
     _encontrar_repetidas,
     _es_encabezado_novela,
@@ -110,7 +111,7 @@ def test_encuentra_lineas_repetidas():
         ["Título del libro", "Texto de la página tres."],
     ]
     repetidas = _encontrar_repetidas(paginas, umbral=0.6)
-    assert "Título del libro" in repetidas
+    assert _clave_repetida("Título del libro") in repetidas
     assert "Texto de la página uno." not in repetidas
 
 
@@ -235,3 +236,13 @@ def test_titulo_sin_texto_pasa_al_texto_del_siguiente():
     assert len(caps) == 1
     assert caps[0][0] == "II"
     assert caps[0][1][0] == "I"  # el título sin texto queda como línea, no se pierde
+
+
+def test_encabezado_con_numero_de_pagina_cambiante_se_detecta_como_repetido():
+    paginas = [
+        ["10 SILVIA GRINBERG, ESTHER LEVY", "Texto uno."],
+        ["12 SILVIA GRINBERG, ESTHER LEVY", "Texto dos."],
+        ["14 SILVIA GRINBERG, ESTHER LEVY", "Texto tres."],
+    ]
+    repetidas = _encontrar_repetidas(paginas)
+    assert _clave_repetida("16 SILVIA GRINBERG, ESTHER LEVY") in repetidas
