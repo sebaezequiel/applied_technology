@@ -23,6 +23,7 @@ La API usa las mismas funciones.
 """
 
 import json
+import logging
 import re
 import sys
 from pathlib import Path
@@ -31,6 +32,9 @@ try:
     import pdfplumber
 except ImportError:  # pragma: no cover
     pdfplumber = None  # type: ignore
+
+# pdfminer avisa de cada imagen o gráfico que no entiende; no son errores para nosotros.
+logging.getLogger("pdfminer").setLevel(logging.ERROR)
 
 # --- Patrones de encabezados ---
 # Capítulo en texto: "Capítulo I", "CAPÍTULO 3", "Cap. 2", etc.
@@ -125,10 +129,20 @@ def _limpiar_poesia(lineas: list[str]) -> str:
 # Filtros de líneas de cabecera/pie
 # ---------------------------------------------------------------------------
 
-def _encontrar_repetidas(paginas_lineas: list[list[str]], umbral: float = 0.6) -> set[str]:
+def _clave_repetida(linea: str) -> str:
     """
-    Detecta líneas que aparecen en más del `umbral` de páginas (encabezados/pies repetidos).
-    Solo considera líneas cortas (< 60 caracteres).
+    Clave para comparar encabezados entre páginas: sin dígitos (los números de
+    página cambian), sin espacios repetidos y en minúsculas.
+    """
+    sin_numeros = re.sub(r"\d+", "", linea)
+    return re.sub(r"\s+", " ", sin_numeros).strip().lower()
+
+
+def _encontrar_repetidas(paginas_lineas: list[list[str]], umbral: float = 0.3) -> set[str]:
+    """
+    Detecta claves de líneas que aparecen en más del `umbral` de páginas
+    (encabezados y pies repetidos). Solo considera líneas cortas (< 60 caracteres).
+    Devuelve claves normalizadas con _clave_repetida.
     """
     if not paginas_lineas:
         return set()
@@ -139,11 +153,19 @@ def _encontrar_repetidas(paginas_lineas: list[list[str]], umbral: float = 0.6) -
         for linea in lineas:
             limpia = linea.strip()
             if limpia and len(limpia) < 60:
-                vistas.add(limpia)
-        for linea in vistas:
-            conteo[linea] += 1
+                clave = _clave_repetida(limpia)
+                if clave:
+                    vistas.add(clave)
+        for clave in vistas:
+            conteo[clave] += 1
     total_paginas = len(paginas_lineas)
-    return {linea for linea, n in conteo.items() if n / total_paginas >= umbral}
+    # Un encabezado de páginas alternadas (izquierda/derecha) aparece en cerca de la mitad.
+    # Se exige un mínimo de apariciones para no borrar líneas comunes por casualidad.
+    minimo = 2 if total_paginas < 10 else 4
+    return {
+        clave for clave, n in conteo.items()
+        if n >= minimo and n / total_paginas >= umbral
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -248,7 +270,7 @@ def _dividir_en_capitulos(
 
         for linea in lineas_pag:
             t = linea.strip()
-            if not t or t in repetidas:
+            if not t or (len(t) < 60 and _clave_repetida(t) in repetidas):
                 continue
             tamano = tamanos_dict.get(t, tamano_cuerpo_global)
 
@@ -326,9 +348,37 @@ def _dividir_en_capitulos(
 # Pipeline principal
 # ---------------------------------------------------------------------------
 
+def _leer_paginas(origen: Path) -> tuple[list[list[str]], list | None, str, str]:
+    """
+    Devuelve (paginas_lineas, tamanos_por_pagina, titulo, autor).
+    Con capa de texto se usa pdfplumber (con tamaños de letra).
+    Escaneado: se hace OCR, y los tamaños quedan en None porque el OCR no los da.
+    """
+    if detectar_origen(origen) == "escaneado":
+        from backend.pipeline.pdf_escaneado import extraer_lineas_escaneado
+
+        return extraer_lineas_escaneado(origen), None, origen.stem, ""
+
+    paginas_lineas: list[list[str]] = []
+    tamanos_por_pagina: list[list[tuple[str, float]]] = []
+    titulo_pdf = origen.stem
+    autor_pdf = ""
+    with pdfplumber.open(str(origen)) as pdf:
+        meta = pdf.metadata or {}
+        if meta.get("Title"):
+            titulo_pdf = meta["Title"]
+        if meta.get("Author"):
+            autor_pdf = meta["Author"]
+        for pagina in pdf.pages:
+            lineas_tamano = _extraer_lineas_con_tamano(pagina)
+            tamanos_por_pagina.append(lineas_tamano)
+            paginas_lineas.append([t for t, _ in lineas_tamano])
+    return paginas_lineas, tamanos_por_pagina, titulo_pdf, autor_pdf
+
+
 def procesar_pdf(origen: Path, destino: Path, tipo: str = "novela") -> dict:
     """
-    Extrae texto de un PDF con capa de texto y genera los archivos de salida.
+    Extrae texto de un PDF (con capa de texto o escaneado) y genera los archivos de salida.
     Devuelve el índice igual que `procesar_epub`.
 
     tipo: 'novela' | 'cuento' | 'poesia' | 'apuntes'
@@ -341,23 +391,7 @@ def procesar_pdf(origen: Path, destino: Path, tipo: str = "novela") -> dict:
 
     destino.mkdir(parents=True, exist_ok=True)
 
-    paginas_lineas: list[list[str]] = []
-    tamanos_por_pagina: list[list[tuple[str, float]]] = []
-    titulo_pdf = origen.stem
-    autor_pdf = ""
-
-    with pdfplumber.open(str(origen)) as pdf:
-        # Metadatos básicos
-        meta = pdf.metadata or {}
-        if meta.get("Title"):
-            titulo_pdf = meta["Title"]
-        if meta.get("Author"):
-            autor_pdf = meta["Author"]
-
-        for pagina in pdf.pages:
-            lineas_tamano = _extraer_lineas_con_tamano(pagina)
-            tamanos_por_pagina.append(lineas_tamano)
-            paginas_lineas.append([t for t, _ in lineas_tamano])
+    paginas_lineas, tamanos_por_pagina, titulo_pdf, autor_pdf = _leer_paginas(origen)
 
     capitulos_raw = _dividir_en_capitulos(paginas_lineas, tipo, tamanos_por_pagina)
 
@@ -407,15 +441,7 @@ def previsualizar_pdf(origen: Path, tipo: str = "novela") -> list[dict]:
     if pdfplumber is None:
         raise RuntimeError("pdfplumber no está instalado. Ejecutá: pip install pdfplumber")
 
-    paginas_lineas: list[list[str]] = []
-    tamanos_por_pagina: list[list[tuple[str, float]]] = []
-
-    with pdfplumber.open(str(origen)) as pdf:
-        for pagina in pdf.pages:
-            lineas_tamano = _extraer_lineas_con_tamano(pagina)
-            tamanos_por_pagina.append(lineas_tamano)
-            paginas_lineas.append([t for t, _ in lineas_tamano])
-
+    paginas_lineas, tamanos_por_pagina, _, _ = _leer_paginas(origen)
     capitulos_raw = _dividir_en_capitulos(paginas_lineas, tipo, tamanos_por_pagina)
 
     resultado = []
@@ -453,11 +479,6 @@ def main():
 
     origen = Path(args.origen)
     destino = Path(args.destino) if args.destino else origen.parent / origen.stem
-
-    origen_tipo = detectar_origen(origen)
-    if origen_tipo == "escaneado":
-        print(f"Aviso: el PDF parece escaneado (sin capa de texto). El procesamiento por OCR no está disponible aún.")
-        sys.exit(1)
 
     indice = procesar_pdf(origen, destino, tipo=args.tipo)
 

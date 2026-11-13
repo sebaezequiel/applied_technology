@@ -186,7 +186,7 @@ def importar_pdf(archivo: UploadFile, tipo: str = "novela") -> dict:
         if not indice["capitulos"]:
             raise HTTPException(
                 status_code=422,
-                detail="El PDF no tiene texto para leer. ¿Es un PDF escaneado? El soporte de OCR estará disponible próximamente.",
+                detail="No se encontró texto en el PDF. Si es un escaneado, revisá que tenga páginas con contenido legible.",
             )
 
         DATA_DIR.mkdir(parents=True, exist_ok=True)
