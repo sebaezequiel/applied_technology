@@ -267,9 +267,6 @@ function importarEpub(archivo) {
 async function leerCapitulo(numero) {
   mostrar("lector");
   document.getElementById("titulo-lector").textContent = libroActual.titulo;
-  document
-    .getElementById("portada-lector")
-    .replaceChildren(crearPortada(libroActual.portada, libroActual.titulo, "portada-lector-img"));
   await Lector.abrir(libroActual.id, libroActual.capitulos.length, numero);
 }
 
@@ -287,25 +284,20 @@ function renderLector(estado) {
 
 function cargarVoces() {
   const selector = document.getElementById("selector-voz");
-  const voces = Lector.vocesDisponibles();
+  const voces = Lector.vocesEspanol();
   selector.innerHTML = "";
 
   if (voces.length === 0) {
     selector.innerHTML = `<option>Voz predeterminada</option>`;
     return;
   }
-
-  const guardada = Lector.vozGuardada();
-  voces.forEach((voz) => {
+  voces.forEach((voz, indice) => {
     const opcion = document.createElement("option");
-    opcion.value = voz.name;
+    opcion.value = indice;
     opcion.textContent = `${voz.name} (${voz.lang})`;
-    if (voz.name === guardada) opcion.selected = true;
     selector.appendChild(opcion);
   });
-
-  const elegida = voces.find((voz) => voz.name === selector.value) || voces[0];
-  Lector.setVoz(elegida);
+  Lector.setVoz(voces[0]);
 }
 
 // ---------- Eventos ----------
@@ -357,8 +349,8 @@ function conectarEventos() {
     Lector.setVelocidad(Number(evento.target.value));
   });
   document.getElementById("selector-voz").addEventListener("change", (evento) => {
-    const voz = Lector.vocesDisponibles().find((v) => v.name === evento.target.value);
-    if (voz) Lector.setVoz(voz);
+    const voces = Lector.vocesEspanol();
+    Lector.setVoz(voces[Number(evento.target.value)]);
   });
 
   Lector.onEscuchar(() => {
