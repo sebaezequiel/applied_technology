@@ -202,12 +202,43 @@ async function borrarLibroActual() {
   }
 }
 
-// ---------- Importar EPUB ----------
+// ---------- Modal de importación ----------
 
-// Usa XMLHttpRequest porque fetch no informa el avance de la subida.
+let _archivoPdfSeleccionado = null;
+
+function abrirModal() {
+  document.getElementById("modal-importar").hidden = false;
+  mostrarPaso("paso-tipo-archivo");
+}
+
+function cerrarModal() {
+  document.getElementById("modal-importar").hidden = true;
+  _archivoPdfSeleccionado = null;
+  // Limpiar avisos
+  ["aviso-epub", "aviso-pdf-tipo", "aviso-preview"].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = "";
+  });
+  ["progreso-importar", "progreso-pdf"].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) { el.hidden = true; el.value = 0; }
+  });
+  document.getElementById("btn-elegir-epub").disabled = false;
+  document.getElementById("btn-elegir-pdf").disabled = false;
+  document.getElementById("btn-preview-confirmar").disabled = false;
+}
+
+function mostrarPaso(id) {
+  ["paso-tipo-archivo", "paso-epub", "paso-pdf-tipo", "paso-preview"].forEach((paso) => {
+    document.getElementById(paso).hidden = paso !== id;
+  });
+}
+
+// --- EPUB ---
+
 function importarEpub(archivo) {
-  const aviso = document.getElementById("aviso-importar");
-  const boton = document.getElementById("btn-importar");
+  const aviso = document.getElementById("aviso-epub");
+  const boton = document.getElementById("btn-elegir-epub");
   const progreso = document.getElementById("progreso-importar");
 
   boton.disabled = true;
@@ -227,27 +258,133 @@ function importarEpub(archivo) {
     aviso.textContent = `Subiendo "${archivo.name}"… ${porcentaje}%`;
   };
 
-  // Subido el archivo, la PC lo procesa: la barra pasa a modo indefinido.
   pedido.upload.onload = () => {
     progreso.removeAttribute("value");
-    aviso.textContent = "Procesando el EPUB en la PC… puede tardar unos segundos.";
+    aviso.textContent = "Procesando el EPUB… puede tardar unos segundos.";
   };
 
   const terminar = () => {
     boton.disabled = false;
     progreso.hidden = true;
+    progreso.value = 0;
   };
 
   pedido.onload = () => {
     terminar();
     let datos = {};
-    try {
-      datos = JSON.parse(pedido.responseText);
-    } catch {
-      // respuesta sin JSON: se usa el mensaje genérico
-    }
+    try { datos = JSON.parse(pedido.responseText); } catch { /**/ }
     if (pedido.status >= 200 && pedido.status < 300) {
-      aviso.textContent = `Listo: ${datos.titulo} (${datos.capitulos} capítulos).`;
+      cerrarModal();
+      mostrar("biblioteca");
+      renderBiblioteca();
+    } else {
+      aviso.textContent = mensajeDetalle(pedido.status, datos);
+    }
+  };
+
+  pedido.onerror = () => {
+    terminar();
+    aviso.textContent = mensajeConexion();
+  };
+
+  pedido.send(formulario);
+}
+
+// --- PDF: vista previa ---
+
+async function cargarPreviewPdf(archivo, tipo) {
+  const aviso = document.getElementById("aviso-pdf-tipo");
+  const btnElegir = document.getElementById("btn-elegir-pdf");
+  btnElegir.disabled = true;
+  aviso.textContent = "Analizando el PDF…";
+
+  try {
+    const formulario = new FormData();
+    formulario.append("archivo", archivo);
+    const respuesta = await fetch(`${API}/libros/pdf/preview?tipo=${tipo}`, {
+      method: "POST",
+      body: formulario,
+    });
+    const datos = await respuesta.json();
+    if (!respuesta.ok) {
+      aviso.textContent = mensajeDetalle(respuesta.status, datos);
+      btnElegir.disabled = false;
+      return;
+    }
+    aviso.textContent = "";
+    btnElegir.disabled = false;
+    mostrarPreview(datos, archivo, tipo);
+  } catch {
+    aviso.textContent = mensajeConexion();
+    btnElegir.disabled = false;
+  }
+}
+
+function mostrarPreview(datos, archivo, tipo) {
+  const lista = document.getElementById("lista-preview");
+  const desc = document.getElementById("preview-desc");
+  lista.innerHTML = "";
+
+  const n = datos.capitulos.length;
+  desc.textContent = `Se detectaron ${n} ${n === 1 ? "capítulo" : "capítulos"} en "${archivo.name}" (tipo: ${tipo}).`;
+
+  datos.capitulos.forEach((cap) => {
+    const li = document.createElement("li");
+    const chars = cap.caracteres >= 1000
+      ? `${Math.round(cap.caracteres / 1000)} k`
+      : `${cap.caracteres}`;
+    li.innerHTML = `<span>${cap.numero}. ${cap.titulo}</span><span class="preview-num">${chars} chars</span>`;
+    lista.appendChild(li);
+  });
+
+  mostrarPaso("paso-preview");
+
+  // Guardar para usar al confirmar
+  document.getElementById("btn-preview-confirmar").onclick = () => confirmarImportarPdf(archivo, tipo);
+  document.getElementById("btn-preview-volver").onclick = () => mostrarPaso("paso-pdf-tipo");
+}
+
+// --- PDF: importar definitivo ---
+
+function confirmarImportarPdf(archivo, tipo) {
+  const aviso = document.getElementById("aviso-preview");
+  const boton = document.getElementById("btn-preview-confirmar");
+  const progreso = document.getElementById("progreso-pdf");
+
+  boton.disabled = true;
+  progreso.hidden = false;
+  progreso.value = 0;
+  aviso.textContent = `Importando "${archivo.name}"…`;
+
+  const formulario = new FormData();
+  formulario.append("archivo", archivo);
+  const pedido = new XMLHttpRequest();
+  pedido.open("POST", `${API}/libros/pdf?tipo=${tipo}`);
+
+  pedido.upload.onprogress = (evento) => {
+    if (!evento.lengthComputable) return;
+    const porcentaje = Math.round((evento.loaded / evento.total) * 100);
+    progreso.value = porcentaje;
+    aviso.textContent = `Subiendo "${archivo.name}"… ${porcentaje}%`;
+  };
+
+  pedido.upload.onload = () => {
+    progreso.removeAttribute("value");
+    aviso.textContent = "Procesando el PDF…";
+  };
+
+  const terminar = () => {
+    boton.disabled = false;
+    progreso.hidden = true;
+    progreso.value = 0;
+  };
+
+  pedido.onload = () => {
+    terminar();
+    let datos = {};
+    try { datos = JSON.parse(pedido.responseText); } catch { /**/ }
+    if (pedido.status >= 200 && pedido.status < 300) {
+      cerrarModal();
       mostrar("biblioteca");
       renderBiblioteca();
     } else {
@@ -345,14 +482,42 @@ function conectarEventos() {
     renderBiblioteca();
   });
 
-  const inputArchivo = document.getElementById("input-archivo");
-  document.getElementById("btn-importar").addEventListener("click", () => {
-    inputArchivo.click();
+  // Botón principal: abre el modal
+  document.getElementById("btn-importar").addEventListener("click", abrirModal);
+
+  // Paso 1: elegir tipo de archivo
+  document.getElementById("opcion-epub").addEventListener("click", () => mostrarPaso("paso-epub"));
+  document.getElementById("opcion-pdf").addEventListener("click", () => mostrarPaso("paso-pdf-tipo"));
+
+  // Cancelar desde cualquier paso
+  ["modal-cerrar-1", "modal-cerrar-epub", "modal-cerrar-pdf-tipo", "modal-cerrar-preview"].forEach((id) => {
+    document.getElementById(id).addEventListener("click", cerrarModal);
   });
-  inputArchivo.addEventListener("change", () => {
-    const archivo = inputArchivo.files[0];
-    inputArchivo.value = "";
+
+  // Cerrar al hacer click fuera del modal
+  document.getElementById("modal-importar").addEventListener("click", (e) => {
+    if (e.target === e.currentTarget) cerrarModal();
+  });
+
+  // Paso 2a: EPUB
+  const inputEpub = document.getElementById("input-epub");
+  document.getElementById("btn-elegir-epub").addEventListener("click", () => inputEpub.click());
+  inputEpub.addEventListener("change", () => {
+    const archivo = inputEpub.files[0];
+    inputEpub.value = "";
     if (archivo) importarEpub(archivo);
+  });
+
+  // Paso 2b: PDF → al elegir archivo, pasa a la vista previa
+  const inputPdf = document.getElementById("input-pdf");
+  document.getElementById("btn-elegir-pdf").addEventListener("click", () => inputPdf.click());
+  inputPdf.addEventListener("change", () => {
+    const archivo = inputPdf.files[0];
+    inputPdf.value = "";
+    if (!archivo) return;
+    _archivoPdfSeleccionado = archivo;
+    const tipo = document.querySelector('input[name="tipo-pdf"]:checked')?.value || "novela";
+    cargarPreviewPdf(archivo, tipo);
   });
 
   const inputPortada = document.getElementById("input-portada");

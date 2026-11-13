@@ -8,5 +8,8 @@ ebooklib>=0.18
 beautifulsoup4>=4.12.0
 lxml>=5.0.0
 
+# PDF (texto digital)
+pdfplumber>=0.11.0
+
 # Utilidades
 python-dotenv>=1.0.0

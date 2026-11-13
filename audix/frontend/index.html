@@ -25,13 +25,82 @@
         <span aria-hidden="true">▶</span> Escuchar
       </button>
       <button type="button" class="boton-secundario" id="btn-importar">
-        + Importar EPUB
+        + Importar libro
       </button>
-      <input type="file" id="input-archivo" accept=".epub,application/epub+zip" hidden>
-      <progress class="progreso-importar" id="progreso-importar" max="100" value="0" hidden></progress>
       <p class="aviso" id="aviso-importar" aria-live="polite"></p>
     </div>
   </main>
+
+  <!-- Modal: flujo de importación -->
+  <div class="modal-fondo" id="modal-importar" hidden aria-modal="true" role="dialog" aria-label="Importar libro">
+    <div class="modal">
+
+      <!-- Paso 1: elegir tipo de archivo -->
+      <section class="modal-paso" id="paso-tipo-archivo">
+        <h2 class="modal-titulo">¿Qué querés importar?</h2>
+        <div class="modal-opciones">
+          <button type="button" class="opcion-formato" id="opcion-epub">
+            <span class="opcion-icono">📖</span>
+            <span class="opcion-label">EPUB</span>
+          </button>
+          <button type="button" class="opcion-formato" id="opcion-pdf">
+            <span class="opcion-icono">📄</span>
+            <span class="opcion-label">PDF</span>
+          </button>
+        </div>
+        <button type="button" class="boton-texto" id="modal-cerrar-1">Cancelar</button>
+      </section>
+
+      <!-- Paso 2a: EPUB — sube directamente -->
+      <section class="modal-paso" id="paso-epub" hidden>
+        <h2 class="modal-titulo">Importar EPUB</h2>
+        <p class="modal-desc">Elegí el archivo EPUB de tu biblioteca.</p>
+        <input type="file" id="input-epub" accept=".epub,application/epub+zip" hidden>
+        <button type="button" class="boton-principal" id="btn-elegir-epub">Elegir archivo</button>
+        <progress class="progreso-importar" id="progreso-importar" max="100" value="0" hidden></progress>
+        <p class="aviso" id="aviso-epub" aria-live="polite"></p>
+        <button type="button" class="boton-texto" id="modal-cerrar-epub">Cancelar</button>
+      </section>
+
+      <!-- Paso 2b: PDF — elige tipo de documento -->
+      <section class="modal-paso" id="paso-pdf-tipo" hidden>
+        <h2 class="modal-titulo">¿Qué tipo de PDF es?</h2>
+        <div class="modal-opciones modal-opciones-col">
+          <label class="opcion-radio">
+            <input type="radio" name="tipo-pdf" value="novela" checked> Novela
+          </label>
+          <label class="opcion-radio">
+            <input type="radio" name="tipo-pdf" value="cuento"> Cuento
+          </label>
+          <label class="opcion-radio">
+            <input type="radio" name="tipo-pdf" value="poesia"> Poesía
+          </label>
+          <label class="opcion-radio">
+            <input type="radio" name="tipo-pdf" value="apuntes"> Apuntes / texto informativo
+          </label>
+        </div>
+        <input type="file" id="input-pdf" accept=".pdf,application/pdf" hidden>
+        <button type="button" class="boton-principal" id="btn-elegir-pdf">Elegir archivo PDF</button>
+        <p class="aviso" id="aviso-pdf-tipo" aria-live="polite"></p>
+        <button type="button" class="boton-texto" id="modal-cerrar-pdf-tipo">Cancelar</button>
+      </section>
+
+      <!-- Paso 3: vista previa de capítulos -->
+      <section class="modal-paso" id="paso-preview" hidden>
+        <h2 class="modal-titulo">Vista previa</h2>
+        <p class="modal-desc" id="preview-desc"></p>
+        <ul class="lista-preview" id="lista-preview"></ul>
+        <div class="modal-acciones">
+          <button type="button" class="boton-secundario" id="btn-preview-volver">Cambiar tipo</button>
+          <button type="button" class="boton-principal" id="btn-preview-confirmar">Importar</button>
+        </div>
+        <progress class="progreso-importar" id="progreso-pdf" max="100" value="0" hidden></progress>
+        <p class="aviso" id="aviso-preview" aria-live="polite"></p>
+        <button type="button" class="boton-texto" id="modal-cerrar-preview">Cancelar</button>
+      </section>
+
+    </div>
+  </div>
 
   <!-- Biblioteca: libros disponibles -->
   <main class="pantalla" id="biblioteca" hidden>

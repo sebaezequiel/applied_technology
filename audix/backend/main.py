@@ -19,12 +19,14 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from backend.pipeline.epub_a_capitulos import procesar_epub
+from backend.pipeline.pdf_a_capitulos import detectar_origen, previsualizar_pdf, procesar_pdf
 
 RAIZ = Path(__file__).resolve().parent.parent
 DATA_DIR = Path(os.environ.get("AUDIX_DATA_DIR") or RAIZ / "data")
 FRONTEND_DIR = RAIZ / "frontend"
-TAMANO_MAXIMO = 50 * 1024 * 1024  # 50 MB para EPUB
+TAMANO_MAXIMO = 50 * 1024 * 1024  # 50 MB para EPUB / PDF
 TAMANO_PORTADA = 5 * 1024 * 1024  # 5 MB para portadas
+TIPOS_PDF = {"novela", "cuento", "poesia", "apuntes"}
 EXTENSIONES_PORTADA = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}
 ID_LIBRO = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 
@@ -82,6 +84,121 @@ def _url_portada(libro_id: str, datos: dict):
 @app.get("/health")
 def health() -> dict:
     return {"estado": "ok"}
+
+
+# ---------------------------------------------------------------------------
+# PDF: detectar origen y vista previa
+# ---------------------------------------------------------------------------
+
+@app.post("/libros/pdf/detectar")
+def detectar_pdf(archivo: UploadFile) -> dict:
+    """
+    Recibe un PDF y devuelve si tiene capa de texto o es escaneado.
+    No guarda el archivo en disco.
+    """
+    if not archivo.filename or not archivo.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Solo se aceptan archivos PDF (terminan en .pdf)")
+
+    contenido = archivo.file.read(TAMANO_MAXIMO + 1)
+    if len(contenido) > TAMANO_MAXIMO:
+        raise HTTPException(status_code=413, detail="El archivo supera los 50 MB")
+    if not contenido:
+        raise HTTPException(status_code=400, detail="El archivo está vacío")
+
+    with tempfile.TemporaryDirectory() as temporal:
+        ruta = Path(temporal) / "libro.pdf"
+        ruta.write_bytes(contenido)
+        try:
+            origen = detectar_origen(ruta)
+        except Exception as error:
+            raise HTTPException(
+                status_code=422,
+                detail=f"No se pudo analizar el PDF: {error}",
+            ) from error
+
+    return {"origen": origen}
+
+
+@app.post("/libros/pdf/preview")
+def preview_pdf(archivo: UploadFile, tipo: str = "novela") -> dict:
+    """
+    Recibe un PDF y devuelve la lista de capítulos detectados (sin guardar).
+    Parámetro: tipo = novela | cuento | poesia | apuntes
+    """
+    if tipo not in TIPOS_PDF:
+        raise HTTPException(status_code=400, detail=f"Tipo inválido. Usá: {', '.join(sorted(TIPOS_PDF))}")
+
+    if not archivo.filename or not archivo.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Solo se aceptan archivos PDF (terminan en .pdf)")
+
+    contenido = archivo.file.read(TAMANO_MAXIMO + 1)
+    if len(contenido) > TAMANO_MAXIMO:
+        raise HTTPException(status_code=413, detail="El archivo supera los 50 MB")
+    if not contenido:
+        raise HTTPException(status_code=400, detail="El archivo está vacío")
+
+    with tempfile.TemporaryDirectory() as temporal:
+        ruta = Path(temporal) / "libro.pdf"
+        ruta.write_bytes(contenido)
+        try:
+            capitulos = previsualizar_pdf(ruta, tipo=tipo)
+        except Exception as error:
+            raise HTTPException(
+                status_code=422,
+                detail=f"No se pudo leer el PDF: {error}",
+            ) from error
+
+    return {"tipo": tipo, "capitulos": capitulos}
+
+
+@app.post("/libros/pdf", status_code=201)
+def importar_pdf(archivo: UploadFile, tipo: str = "novela") -> dict:
+    """
+    Importa un PDF con capa de texto.
+    Parámetro: tipo = novela | cuento | poesia | apuntes
+    """
+    if tipo not in TIPOS_PDF:
+        raise HTTPException(status_code=400, detail=f"Tipo inválido. Usá: {', '.join(sorted(TIPOS_PDF))}")
+
+    if not archivo.filename or not archivo.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Solo se aceptan archivos PDF (terminan en .pdf)")
+
+    contenido = archivo.file.read(TAMANO_MAXIMO + 1)
+    if len(contenido) > TAMANO_MAXIMO:
+        raise HTTPException(status_code=413, detail="El archivo supera los 50 MB")
+    if not contenido:
+        raise HTTPException(status_code=400, detail="El archivo está vacío")
+
+    with tempfile.TemporaryDirectory() as temporal:
+        ruta = Path(temporal) / "libro.pdf"
+        ruta.write_bytes(contenido)
+        salida = Path(temporal) / "salida"
+
+        try:
+            indice = procesar_pdf(ruta, salida, tipo=tipo)
+        except Exception as error:
+            raise HTTPException(
+                status_code=422,
+                detail=f"No se pudo procesar el PDF: {error}",
+            ) from error
+
+        if not indice["capitulos"]:
+            raise HTTPException(
+                status_code=422,
+                detail="El PDF no tiene texto para leer. ¿Es un PDF escaneado? El soporte de OCR estará disponible próximamente.",
+            )
+
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        destino = _carpeta_libre(_slug(indice["titulo"]))
+        shutil.move(str(salida), str(destino))
+
+    return {
+        "id": destino.name,
+        "titulo": indice["titulo"],
+        "autor": indice["autor"],
+        "capitulos": len(indice["capitulos"]),
+        "portada": None,
+    }
 
 
 @app.get("/libros")

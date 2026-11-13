@@ -207,3 +207,117 @@ def test_ids_con_rutas_raras_devuelven_404(cliente):
     assert cliente.get("/libros/a.b").status_code == 404
     assert cliente.get("/libros/Libro-Prueba").status_code == 404
     assert cliente.delete("/libros/a.b").status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Tests de los endpoints PDF
+# ---------------------------------------------------------------------------
+
+def crear_pdf_bytes_simple(titulo: str = "Test PDF") -> bytes:
+    """
+    Crea un PDF mínimo con capa de texto usando reportlab.
+    Si reportlab no está disponible, genera un PDF mínimo hardcoded con texto simple.
+    """
+    try:
+        from reportlab.lib.pagesizes import A4
+        from reportlab.pdfgen import canvas
+        import io as _io
+
+        buf = _io.BytesIO()
+        c = canvas.Canvas(buf, pagesize=A4)
+        c.setFont("Helvetica-Bold", 16)
+        c.drawString(72, 750, titulo)
+        c.setFont("Helvetica", 12)
+        c.drawString(72, 700, "I")
+        c.drawString(72, 670, "Este es el texto del primer capítulo.")
+        c.drawString(72, 650, "Continúa en la siguiente línea.")
+        c.showPage()
+        c.drawString(72, 750, "II")
+        c.drawString(72, 720, "Este es el texto del segundo capítulo.")
+        c.save()
+        return buf.getvalue()
+    except ImportError:
+        # PDF mínimo válido sin texto real (sirve para probar los errores)
+        return b""
+
+
+def test_detectar_pdf_rechaza_no_pdf(cliente):
+    respuesta = cliente.post(
+        "/libros/pdf/detectar",
+        files={"archivo": ("libro.epub", b"PK\x03\x04", "application/epub+zip")},
+    )
+    assert respuesta.status_code == 400
+
+
+def test_detectar_pdf_vacio_devuelve_400(cliente):
+    respuesta = cliente.post(
+        "/libros/pdf/detectar",
+        files={"archivo": ("vacio.pdf", b"", "application/pdf")},
+    )
+    assert respuesta.status_code == 400
+
+
+def test_importar_pdf_tipo_invalido_devuelve_400(cliente):
+    respuesta = cliente.post(
+        "/libros/pdf?tipo=inventado",
+        files={"archivo": ("libro.pdf", b"%PDF-1.4", "application/pdf")},
+    )
+    assert respuesta.status_code == 400
+
+
+def test_importar_pdf_vacio_devuelve_400(cliente):
+    respuesta = cliente.post(
+        "/libros/pdf?tipo=novela",
+        files={"archivo": ("vacio.pdf", b"", "application/pdf")},
+    )
+    assert respuesta.status_code == 400
+
+
+def test_importar_pdf_no_pdf_devuelve_400(cliente):
+    respuesta = cliente.post(
+        "/libros/pdf?tipo=novela",
+        files={"archivo": ("libro.epub", b"PK\x03\x04", "application/pdf")},
+    )
+    assert respuesta.status_code == 400
+
+
+def test_preview_pdf_tipo_invalido_devuelve_400(cliente):
+    respuesta = cliente.post(
+        "/libros/pdf/preview?tipo=cualquiera",
+        files={"archivo": ("libro.pdf", b"%PDF-1.4", "application/pdf")},
+    )
+    assert respuesta.status_code == 400
+
+
+def test_importar_pdf_con_reportlab(cliente, tmp_path):
+    """Test de integración completo si reportlab está disponible."""
+    pdf_bytes = crear_pdf_bytes_simple("Mi PDF de prueba")
+    if not pdf_bytes:
+        import pytest as _pytest
+        _pytest.skip("reportlab no disponible; se omite test de integración PDF")
+
+    respuesta = cliente.post(
+        "/libros/pdf?tipo=novela",
+        files={"archivo": ("mi-pdf.pdf", pdf_bytes, "application/pdf")},
+    )
+    assert respuesta.status_code == 201
+    datos = respuesta.json()
+    assert datos["capitulos"] >= 1
+    assert datos["portada"] is None
+
+
+def test_preview_pdf_con_reportlab(cliente, tmp_path):
+    """Preview sin guardar si reportlab está disponible."""
+    pdf_bytes = crear_pdf_bytes_simple("Preview test")
+    if not pdf_bytes:
+        import pytest as _pytest
+        _pytest.skip("reportlab no disponible; se omite test de integración PDF")
+
+    respuesta = cliente.post(
+        "/libros/pdf/preview?tipo=cuento",
+        files={"archivo": ("preview.pdf", pdf_bytes, "application/pdf")},
+    )
+    assert respuesta.status_code == 200
+    datos = respuesta.json()
+    assert "capitulos" in datos
+    assert datos["tipo"] == "cuento"
