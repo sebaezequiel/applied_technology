@@ -185,11 +185,11 @@ const Lector = (() => {
     return localStorage.getItem(CLAVE_VOZ);
   }
 
-  // Todas las voces que expone el navegador, ordenadas por idioma y nombre.
+  // Voces en español e inglés, ordenadas por idioma y nombre.
   function vocesDisponibles() {
     return speechSynthesis
       .getVoices()
-      .slice()
+      .filter((voz) => voz.lang.startsWith("es") || voz.lang.startsWith("en"))
       .sort((a, b) => a.lang.localeCompare(b.lang) || a.name.localeCompare(b.name));
   }
 
