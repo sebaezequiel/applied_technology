@@ -14,6 +14,7 @@ import unicodedata
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, UploadFile
+from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -264,6 +265,25 @@ def importar_libro(archivo: UploadFile) -> dict:
 @app.get("/libros/{libro_id}")
 def detalle_libro(libro_id: str) -> dict:
     datos = _leer_indice(libro_id)
+    return {"id": libro_id, **datos, "portada": _url_portada(libro_id, datos)}
+
+
+class CambioTitulo(BaseModel):
+    titulo: str
+
+
+@app.patch("/libros/{libro_id}")
+def renombrar_libro(libro_id: str, cambio: CambioTitulo) -> dict:
+    """Cambia el título del libro (útil si la importación lo leyó mal)."""
+    titulo = cambio.titulo.strip()
+    if not titulo:
+        raise HTTPException(status_code=400, detail="El título no puede estar vacío")
+    if len(titulo) > 200:
+        raise HTTPException(status_code=400, detail="El título es demasiado largo (máximo 200 caracteres)")
+    carpeta = _carpeta_libro(libro_id)
+    datos = _leer_indice(libro_id)
+    datos["titulo"] = titulo
+    _guardar_indice(carpeta, datos)
     return {"id": libro_id, **datos, "portada": _url_portada(libro_id, datos)}
 
 
