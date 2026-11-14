@@ -11,6 +11,7 @@ function mostrar(id) {
   });
   window.scrollTo(0, 0);
   actualizarMini();
+  if (id === "biblioteca") cargarImportaciones();
 }
 
 // ---------- Mensajes de error ----------
@@ -242,7 +243,7 @@ function cerrarModal() {
   document.getElementById("modal-importar").hidden = true;
   _archivoPdfSeleccionado = null;
   // Limpiar avisos
-  ["aviso-epub", "aviso-pdf-tipo", "aviso-preview"].forEach((id) => {
+  ["aviso-epub", "aviso-pdf-tipo"].forEach((id) => {
     const el = document.getElementById(id);
     if (el) el.textContent = "";
   });
@@ -252,11 +253,10 @@ function cerrarModal() {
   });
   document.getElementById("btn-elegir-epub").disabled = false;
   document.getElementById("btn-elegir-pdf").disabled = false;
-  document.getElementById("btn-preview-confirmar").disabled = false;
 }
 
 function mostrarPaso(id) {
-  ["paso-tipo-archivo", "paso-epub", "paso-pdf-tipo", "paso-preview"].forEach((paso) => {
+  ["paso-tipo-archivo", "paso-epub", "paso-pdf-tipo"].forEach((paso) => {
     document.getElementById(paso).hidden = paso !== id;
   });
 }
@@ -317,117 +317,122 @@ function importarEpub(archivo) {
   pedido.send(formulario);
 }
 
-// --- PDF: vista previa ---
+// --- PDF: importación en segundo plano ---
 
-async function cargarPreviewPdf(archivo, tipo) {
+function importarPdf(archivo, tipo) {
   const aviso = document.getElementById("aviso-pdf-tipo");
-  const btnElegir = document.getElementById("btn-elegir-pdf");
-  btnElegir.disabled = true;
-  aviso.textContent = "Analizando el PDF…";
-
-  try {
-    const formulario = new FormData();
-    formulario.append("archivo", archivo);
-    const respuesta = await fetch(`${API}/libros/pdf/preview?tipo=${tipo}`, {
-      method: "POST",
-      body: formulario,
-    });
-    const datos = await respuesta.json();
-    if (!respuesta.ok) {
-      aviso.textContent = mensajeDetalle(respuesta.status, datos);
-      btnElegir.disabled = false;
-      return;
-    }
-    aviso.textContent = "";
-    btnElegir.disabled = false;
-    mostrarPreview(datos, archivo, tipo);
-  } catch {
-    aviso.textContent = mensajeConexion();
-    btnElegir.disabled = false;
-  }
-}
-
-function mostrarPreview(datos, archivo, tipo) {
-  const lista = document.getElementById("lista-preview");
-  const desc = document.getElementById("preview-desc");
-  lista.innerHTML = "";
-
-  const n = datos.capitulos.length;
-  desc.textContent = `Se detectaron ${n} ${n === 1 ? "capítulo" : "capítulos"} en "${archivo.name}" (tipo: ${tipo}).`;
-
-  datos.capitulos.forEach((cap) => {
-    const li = document.createElement("li");
-    const chars = cap.caracteres >= 1000
-      ? `${Math.round(cap.caracteres / 1000)} k`
-      : `${cap.caracteres}`;
-    li.innerHTML = `<span>${cap.numero}. ${cap.titulo}</span><span class="preview-num">${chars} chars</span>`;
-    lista.appendChild(li);
-  });
-
-  mostrarPaso("paso-preview");
-
-  // Guardar para usar al confirmar
-  document.getElementById("btn-preview-confirmar").onclick = () => confirmarImportarPdf(archivo, tipo);
-  document.getElementById("btn-preview-volver").onclick = () => mostrarPaso("paso-pdf-tipo");
-}
-
-// --- PDF: importar definitivo ---
-
-function confirmarImportarPdf(archivo, tipo) {
-  const aviso = document.getElementById("aviso-preview");
-  const boton = document.getElementById("btn-preview-confirmar");
-  const progreso = document.getElementById("progreso-pdf");
-
+  const boton = document.getElementById("btn-elegir-pdf");
   boton.disabled = true;
-  progreso.hidden = false;
-  progreso.value = 0;
-  aviso.textContent = `Importando "${archivo.name}"…`;
+  aviso.textContent = `Enviando "${archivo.name}"…`;
 
   const formulario = new FormData();
   formulario.append("archivo", archivo);
-  const pedido = new XMLHttpRequest();
-  pedido.open("POST", `${API}/libros/pdf?tipo=${tipo}`);
-
-  pedido.upload.onprogress = (evento) => {
-    if (!evento.lengthComputable) return;
-    const porcentaje = Math.round((evento.loaded / evento.total) * 100);
-    progreso.value = porcentaje;
-    aviso.textContent = `Subiendo "${archivo.name}"… ${porcentaje}%`;
-  };
-
-  pedido.upload.onload = () => {
-    progreso.removeAttribute("value");
-    aviso.textContent = "Procesando el PDF…";
-  };
-
-  const terminar = () => {
-    boton.disabled = false;
-    progreso.hidden = true;
-    progreso.value = 0;
-  };
-
-  pedido.onload = () => {
-    terminar();
-    let datos = {};
-    try { datos = JSON.parse(pedido.responseText); } catch { /**/ }
-    if (pedido.status >= 200 && pedido.status < 300) {
+  fetch(`${API}/libros/pdf?tipo=${tipo}`, { method: "POST", body: formulario })
+    .then(async (respuesta) => {
+      const datos = await respuesta.json().catch(() => ({}));
+      if (!respuesta.ok) {
+        aviso.textContent = mensajeDetalle(respuesta.status, datos);
+        return;
+      }
       cerrarModal();
       mostrar("biblioteca");
-      renderBiblioteca();
-    } else {
-      aviso.textContent = mensajeDetalle(pedido.status, datos);
-    }
-  };
-
-  pedido.onerror = () => {
-    terminar();
-    aviso.textContent = mensajeConexion();
-  };
-
-  pedido.send(formulario);
+      mostrarImportaciones();
+      cargarImportaciones();
+    })
+    .catch(() => {
+      aviso.textContent = mensajeConexion();
+    })
+    .finally(() => {
+      boton.disabled = false;
+    });
 }
 
-// ---------- Lector ----------
+let _timerImportaciones = null;
+
+async function cargarImportaciones() {
+  clearTimeout(_timerImportaciones);
+  let trabajos = [];
+  try {
+    const respuesta = await fetch(`${API}/trabajos`);
+    if (respuesta.ok) trabajos = await respuesta.json();
+  } catch {
+    // Sin conexión: se reintenta en el próximo ciclo.
+  }
+  pintarImportaciones(trabajos);
+
+  const hayEnCurso = trabajos.some((t) => t.estado === "en_curso");
+  if (hayEnCurso) {
+    _timerImportaciones = setTimeout(cargarImportaciones, 2000);
+  } else if (trabajos.some((t) => t.estado === "listo")) {
+    // Un libro nuevo terminó: refresca la biblioteca.
+    renderBiblioteca();
+  }
+}
+
+function mostrarImportaciones() {
+  document.getElementById("importaciones").hidden = false;
+}
+
+function pintarImportaciones(trabajos) {
+  const seccion = document.getElementById("importaciones");
+  const lista = document.getElementById("lista-importaciones");
+  lista.innerHTML = "";
+  seccion.hidden = trabajos.length === 0;
+
+  trabajos.forEach((trabajo) => {
+    const fila = document.createElement("div");
+    fila.className = "fila-importacion";
+
+    const texto = document.createElement("div");
+    texto.className = "texto-libro";
+    const nombre = document.createElement("strong");
+    nombre.textContent = trabajo.nombre;
+    const detalle = document.createElement("span");
+
+    if (trabajo.estado === "en_curso") {
+      detalle.textContent = `Procesando… ${trabajo.progreso}%`;
+      const barra = document.createElement("progress");
+      barra.max = 100;
+      barra.value = trabajo.progreso;
+      texto.append(nombre, detalle, barra);
+    } else if (trabajo.estado === "listo") {
+      detalle.textContent = "Listo para escuchar";
+      texto.append(nombre, detalle);
+    } else {
+      detalle.textContent = `Error: ${trabajo.error}`;
+      texto.append(nombre, detalle);
+    }
+    fila.appendChild(texto);
+
+    const acciones = document.createElement("div");
+    acciones.className = "acciones-importacion";
+    if (trabajo.estado === "listo") {
+      const abrir = document.createElement("button");
+      abrir.type = "button";
+      abrir.className = "boton-secundario";
+      abrir.textContent = "Abrir";
+      abrir.addEventListener("click", async () => {
+        await fetch(`${API}/trabajos/${trabajo.id}`, { method: "DELETE" });
+        renderBiblioteca();
+        abrirLibro(trabajo.libro_id);
+      });
+      acciones.appendChild(abrir);
+    }
+    if (trabajo.estado !== "en_curso") {
+      const quitar = document.createElement("button");
+      quitar.type = "button";
+      quitar.className = "boton-texto";
+      quitar.textContent = "Quitar";
+      quitar.addEventListener("click", async () => {
+        await fetch(`${API}/trabajos/${trabajo.id}`, { method: "DELETE" });
+        cargarImportaciones();
+      });
+      acciones.appendChild(quitar);
+    }
+    fila.appendChild(acciones);
+    lista.appendChild(fila);
+  });
+}
 
 async function leerCapitulo(numero) {
   mostrar("lector");
@@ -517,7 +522,7 @@ function conectarEventos() {
   document.getElementById("opcion-pdf").addEventListener("click", () => mostrarPaso("paso-pdf-tipo"));
 
   // Cancelar desde cualquier paso
-  ["modal-cerrar-1", "modal-cerrar-epub", "modal-cerrar-pdf-tipo", "modal-cerrar-preview"].forEach((id) => {
+  ["modal-cerrar-1", "modal-cerrar-epub", "modal-cerrar-pdf-tipo"].forEach((id) => {
     document.getElementById(id).addEventListener("click", cerrarModal);
   });
 
@@ -535,16 +540,15 @@ function conectarEventos() {
     if (archivo) importarEpub(archivo);
   });
 
-  // Paso 2b: PDF → al elegir archivo, pasa a la vista previa
+  // Paso 2b: PDF → se importa en segundo plano
   const inputPdf = document.getElementById("input-pdf");
   document.getElementById("btn-elegir-pdf").addEventListener("click", () => inputPdf.click());
   inputPdf.addEventListener("change", () => {
     const archivo = inputPdf.files[0];
     inputPdf.value = "";
     if (!archivo) return;
-    _archivoPdfSeleccionado = archivo;
     const tipo = document.querySelector('input[name="tipo-pdf"]:checked')?.value || "novela";
-    cargarPreviewPdf(archivo, tipo);
+    importarPdf(archivo, tipo);
   });
 
   const inputPortada = document.getElementById("input-portada");

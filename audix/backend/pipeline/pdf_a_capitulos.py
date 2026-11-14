@@ -61,6 +61,9 @@ _LARGO_MAXIMO_TITULO = 60
 # Detección de origen
 # ---------------------------------------------------------------------------
 
+PAGINAS_DETECCION = 5
+
+
 def detectar_origen(ruta: Path) -> str:
     """
     Devuelve 'texto' si el PDF tiene capa de texto en la mayoría de las páginas,
@@ -72,7 +75,8 @@ def detectar_origen(ruta: Path) -> str:
     total = 0
     con_texto = 0
     with pdfplumber.open(str(ruta)) as pdf:
-        for pagina in pdf.pages:
+        # Con unas pocas páginas alcanza para saber si hay texto; revisar todo es lento.
+        for pagina in pdf.pages[:PAGINAS_DETECCION]:
             total += 1
             texto = pagina.extract_text() or ""
             if len(texto.strip()) > 20:
@@ -348,7 +352,7 @@ def _dividir_en_capitulos(
 # Pipeline principal
 # ---------------------------------------------------------------------------
 
-def _leer_paginas(origen: Path) -> tuple[list[list[str]], list | None, str, str]:
+def _leer_paginas(origen: Path, progreso=None) -> tuple[list[list[str]], list | None, str, str]:
     """
     Devuelve (paginas_lineas, tamanos_por_pagina, titulo, autor).
     Con capa de texto se usa pdfplumber (con tamaños de letra).
@@ -357,7 +361,7 @@ def _leer_paginas(origen: Path) -> tuple[list[list[str]], list | None, str, str]
     if detectar_origen(origen) == "escaneado":
         from backend.pipeline.pdf_escaneado import extraer_lineas_escaneado
 
-        return extraer_lineas_escaneado(origen), None, origen.stem, ""
+        return extraer_lineas_escaneado(origen, progreso), None, origen.stem, ""
 
     paginas_lineas: list[list[str]] = []
     tamanos_por_pagina: list[list[tuple[str, float]]] = []
@@ -369,14 +373,17 @@ def _leer_paginas(origen: Path) -> tuple[list[list[str]], list | None, str, str]
             titulo_pdf = meta["Title"]
         if meta.get("Author"):
             autor_pdf = meta["Author"]
-        for pagina in pdf.pages:
+        total = len(pdf.pages)
+        for numero, pagina in enumerate(pdf.pages, start=1):
             lineas_tamano = _extraer_lineas_con_tamano(pagina)
             tamanos_por_pagina.append(lineas_tamano)
             paginas_lineas.append([t for t, _ in lineas_tamano])
+            if progreso:
+                progreso(numero, total)
     return paginas_lineas, tamanos_por_pagina, titulo_pdf, autor_pdf
 
 
-def procesar_pdf(origen: Path, destino: Path, tipo: str = "novela") -> dict:
+def procesar_pdf(origen: Path, destino: Path, tipo: str = "novela", progreso=None) -> dict:
     """
     Extrae texto de un PDF (con capa de texto o escaneado) y genera los archivos de salida.
     Devuelve el índice igual que `procesar_epub`.
@@ -391,7 +398,7 @@ def procesar_pdf(origen: Path, destino: Path, tipo: str = "novela") -> dict:
 
     destino.mkdir(parents=True, exist_ok=True)
 
-    paginas_lineas, tamanos_por_pagina, titulo_pdf, autor_pdf = _leer_paginas(origen)
+    paginas_lineas, tamanos_por_pagina, titulo_pdf, autor_pdf = _leer_paginas(origen, progreso)
 
     capitulos_raw = _dividir_en_capitulos(paginas_lineas, tipo, tamanos_por_pagina)
 
@@ -430,33 +437,6 @@ def procesar_pdf(origen: Path, destino: Path, tipo: str = "novela") -> dict:
         json.dumps(indice, ensure_ascii=False, indent=2), encoding="utf-8"
     )
     return indice
-
-
-def previsualizar_pdf(origen: Path, tipo: str = "novela") -> list[dict]:
-    """
-    Detecta los capítulos de un PDF sin escribir archivos en disco.
-    Devuelve la lista de capítulos con titulo y caracteres estimados.
-    Útil para la vista previa antes de confirmar la importación.
-    """
-    if pdfplumber is None:
-        raise RuntimeError("pdfplumber no está instalado. Ejecutá: pip install pdfplumber")
-
-    paginas_lineas, tamanos_por_pagina, _, _ = _leer_paginas(origen)
-    capitulos_raw = _dividir_en_capitulos(paginas_lineas, tipo, tamanos_por_pagina)
-
-    resultado = []
-    for idx, (titulo, lineas) in enumerate(capitulos_raw, start=1):
-        if tipo == "poesia":
-            texto = _limpiar_poesia(lineas)
-        else:
-            texto = _limpiar_prosa(lineas)
-        if not texto.strip():
-            continue
-        if not titulo:
-            titulo = _titulo_de_respaldo(lineas, len(resultado) + 1)
-        resultado.append({"numero": len(resultado) + 1, "titulo": titulo, "caracteres": len(texto)})
-
-    return resultado
 
 
 # ---------------------------------------------------------------------------

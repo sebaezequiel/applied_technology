@@ -85,20 +85,6 @@
         <button type="button" class="boton-texto" id="modal-cerrar-pdf-tipo">Cancelar</button>
       </section>
 
-      <!-- Paso 3: vista previa de capítulos -->
-      <section class="modal-paso" id="paso-preview" hidden>
-        <h2 class="modal-titulo">Vista previa</h2>
-        <p class="modal-desc" id="preview-desc"></p>
-        <ul class="lista-preview" id="lista-preview"></ul>
-        <div class="modal-acciones">
-          <button type="button" class="boton-secundario" id="btn-preview-volver">Cambiar tipo</button>
-          <button type="button" class="boton-principal" id="btn-preview-confirmar">Importar</button>
-        </div>
-        <progress class="progreso-importar" id="progreso-pdf" max="100" value="0" hidden></progress>
-        <p class="aviso" id="aviso-preview" aria-live="polite"></p>
-        <button type="button" class="boton-texto" id="modal-cerrar-preview">Cancelar</button>
-      </section>
-
     </div>
   </div>
 
@@ -109,6 +95,10 @@
       <h1>Biblioteca</h1>
     </header>
     <p class="aviso" id="aviso-biblioteca"></p>
+    <section class="importaciones" id="importaciones" aria-label="Importaciones" hidden>
+      <h2 class="seccion-titulo">Importando</h2>
+      <div class="lista" id="lista-importaciones"></div>
+    </section>
     <div class="lista" id="lista-libros"></div>
   </main>
 

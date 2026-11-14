@@ -82,3 +82,10 @@ def test_ocr_de_pagina_simple_si_hay_tesseract():
     dibujo.text((40, 100), "Hola escuela", fill=0)
     texto = pe.ocr_imagen(imagen)
     assert "Hola" in texto
+
+
+def test_es_ruido_ocr_descarta_marcas_del_escaner():
+    assert pe.es_ruido_ocr("|")
+    assert pe.es_ruido_ocr("ab")
+    assert pe.es_ruido_ocr("!!! ??? ...")
+    assert not pe.es_ruido_ocr("Dada la situación de la escuela")
