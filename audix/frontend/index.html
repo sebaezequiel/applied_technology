@@ -3,69 +3,257 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#2b2a27">
+  <meta name="theme-color" content="#FAF9F5" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#1b1a18" media="(prefers-color-scheme: dark)">
+  <meta name="color-scheme" content="light dark">
   <title>Audix</title>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon-192.png">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <!-- Inicio: mascota, racha y acciones principales -->
+  <!-- Íconos: se usan con <svg class="icono"><use href="#i-nombre"/></svg> -->
+  <svg xmlns="http://www.w3.org/2000/svg" hidden>
+    <defs>
+      <symbol id="i-atras" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-chevron" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-mas" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></symbol>
+      <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.2v13.6a1 1 0 0 0 1.5.86l11.3-6.8a1 1 0 0 0 0-1.72L9.5 4.34A1 1 0 0 0 8 5.2z" fill="currentColor"/></symbol>
+      <symbol id="i-pausa" viewBox="0 0 24 24"><rect x="6" y="4.5" width="4.4" height="15" rx="1.4" fill="currentColor"/><rect x="13.6" y="4.5" width="4.4" height="15" rx="1.4" fill="currentColor"/></symbol>
+      <symbol id="i-anterior" viewBox="0 0 24 24"><path d="M19 6.1v11.8a.8.8 0 0 1-1.24.67L9 12.67a.8.8 0 0 1 0-1.34l8.76-5.9A.8.8 0 0 1 19 6.1z" fill="currentColor"/><rect x="5" y="5" width="2.6" height="14" rx="1.3" fill="currentColor"/></symbol>
+      <symbol id="i-siguiente" viewBox="0 0 24 24"><path d="M5 6.1v11.8a.8.8 0 0 0 1.24.67L15 12.67a.8.8 0 0 0 0-1.34l-8.76-5.9A.8.8 0 0 0 5 6.1z" fill="currentColor"/><rect x="16.4" y="5" width="2.6" height="14" rx="1.3" fill="currentColor"/></symbol>
+      <symbol id="i-retroceder" viewBox="0 0 24 24"><path d="M4 5v5h5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M4.6 10A8 8 0 1 1 4 13.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+      <symbol id="i-avanzar" viewBox="0 0 24 24"><path d="M20 5v5h-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M19.4 10A8 8 0 1 0 20 13.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+      <symbol id="i-menu" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.9" fill="currentColor"/><circle cx="12" cy="12" r="1.9" fill="currentColor"/><circle cx="19" cy="12" r="1.9" fill="currentColor"/></symbol>
+      <symbol id="i-biblioteca" viewBox="0 0 24 24"><path d="M5 4v16M9.5 4v16M14 5.2l4.6 14.3" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></symbol>
+      <symbol id="i-imagen" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="14" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="9" cy="10" r="1.6" fill="currentColor"/><path d="M4.5 17l4.5-4 3.5 3 2.5-2 4.5 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+      <symbol id="i-lapiz" viewBox="0 0 24 24"><path d="M4 20l1-4.5L16.5 4a1.8 1.8 0 0 1 2.5 0l1 1a1.8 1.8 0 0 1 0 2.5L8.5 19z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+      <symbol id="i-papelera" viewBox="0 0 24 24"><path d="M4.5 7h15M9.5 7V4.8h5V7M6.5 7l.8 12.2h9.4L17.5 7M10 11v5M14 11v5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="M5.5 12.5l4.2 4.2 8.8-9.4" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-buscar" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16 16l4.5 4.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></symbol>
+      <symbol id="i-libro" viewBox="0 0 24 24"><path d="M12 6.5C10 5 7.5 4.6 4 4.8v13c3.5-.2 6 .2 8 1.7 2-1.5 4.5-1.9 8-1.7v-13c-3.5-.2-6 .2-8 1.7zM12 6.5v13" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+      <symbol id="i-documento" viewBox="0 0 24 24"><path d="M7 3.5h7l4.5 4.5v12.5h-11.5zM14 3.5V8h4.5M9.5 12.5h5.5M9.5 16h5.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></symbol>
+      <symbol id="i-ondas" viewBox="0 0 24 24"><path d="M5 10v4M9.5 6.5v11M14.5 9v6M19 5v14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></symbol>
+    </defs>
+  </svg>
+
+  <!-- Inicio: racha, seguir escuchando y acciones principales -->
   <main class="pantalla" id="inicio">
-    <section class="mascota" aria-label="Mascota y racha">
-      <div class="mascota-circulo" id="mascota"></div>
-      <p class="racha-titulo" id="racha-titulo">Racha: 0 días</p>
-      <p class="racha-detalle" id="racha-detalle">Escuchá hoy para empezar tu racha</p>
+    <header class="barra-inicio">
+      <p class="saludo" id="saludo">Hola</p>
+      <h1 class="marca">Audix</h1>
+    </header>
+
+    <section class="tarjeta-racha" aria-label="Mascota y racha">
+      <div class="racha-arriba">
+        <div class="mascota-circulo" id="mascota"></div>
+        <div class="racha-texto">
+          <p class="racha-numero"><span id="racha-numero">0</span> <span id="racha-unidad">días</span></p>
+          <p class="racha-titulo">de racha</p>
+          <p class="racha-detalle" id="racha-detalle">Escuchá hoy para empezar tu racha</p>
+        </div>
+      </div>
+      <div class="semana" id="semana" aria-label="Días escuchados esta semana"></div>
     </section>
 
-    <section class="semana" id="semana" aria-label="Días escuchados esta semana"></section>
+    <section id="seguir" hidden>
+      <h2 class="seccion-titulo">Seguir escuchando</h2>
+      <button type="button" class="tarjeta-seguir" id="btn-seguir">
+        <span id="seguir-portada"></span>
+        <span class="seguir-texto">
+          <strong id="seguir-titulo"></strong>
+          <small id="seguir-detalle"></small>
+          <span class="barra-fina"><span id="seguir-barra"></span></span>
+        </span>
+        <span class="circulo-play" aria-hidden="true"><svg class="icono"><use href="#i-play"/></svg></span>
+      </button>
+    </section>
 
     <div class="acciones">
       <button type="button" class="boton-principal" id="btn-escuchar">
-        <span aria-hidden="true">▶</span> Escuchar
+        <svg class="icono" aria-hidden="true"><use href="#i-biblioteca"/></svg> Mi biblioteca
       </button>
       <button type="button" class="boton-secundario" id="btn-importar">
-        + Importar libro
+        <svg class="icono" aria-hidden="true"><use href="#i-mas"/></svg> Importar libro
       </button>
-      <p class="aviso" id="aviso-importar" aria-live="polite"></p>
     </div>
   </main>
 
-  <!-- Modal: flujo de importación -->
-  <div class="modal-fondo" id="modal-importar" hidden aria-modal="true" role="dialog" aria-label="Importar libro">
-    <div class="modal">
+  <!-- Biblioteca: libros disponibles -->
+  <main class="pantalla" id="biblioteca" hidden>
+    <header class="encabezado">
+      <button type="button" class="boton-icono" data-volver="inicio" aria-label="Volver">
+        <svg class="icono" aria-hidden="true"><use href="#i-atras"/></svg>
+      </button>
+      <h1>Biblioteca</h1>
+      <button type="button" class="boton-icono" id="btn-importar-biblioteca" aria-label="Importar libro">
+        <svg class="icono" aria-hidden="true"><use href="#i-mas"/></svg>
+      </button>
+    </header>
+
+    <label class="buscador" id="buscador" hidden>
+      <svg class="icono" aria-hidden="true"><use href="#i-buscar"/></svg>
+      <input type="search" id="input-buscar" placeholder="Buscar por título o autor" autocomplete="off" aria-label="Buscar libro">
+    </label>
+
+    <section class="importaciones" id="importaciones" aria-label="Importaciones" hidden>
+      <h2 class="seccion-titulo">Importando</h2>
+      <div class="lista" id="lista-importaciones"></div>
+    </section>
+
+    <div class="lista" id="lista-libros" aria-live="polite"></div>
+  </main>
+
+  <!-- Libro: capítulos -->
+  <main class="pantalla" id="libro" hidden>
+    <header class="encabezado">
+      <button type="button" class="boton-icono" data-volver="biblioteca" aria-label="Volver">
+        <svg class="icono" aria-hidden="true"><use href="#i-atras"/></svg>
+      </button>
+      <span class="encabezado-espacio"></span>
+      <button type="button" class="boton-icono" id="btn-menu-libro" aria-label="Opciones del libro">
+        <svg class="icono" aria-hidden="true"><use href="#i-menu"/></svg>
+      </button>
+    </header>
+
+    <section class="cabecera-libro">
+      <div id="portada-libro"></div>
+      <div class="datos-libro">
+        <h1 id="titulo-libro"></h1>
+        <p class="autor" id="autor-libro"></p>
+        <p class="meta" id="meta-libro"></p>
+      </div>
+    </section>
+
+    <button type="button" class="boton-principal" id="btn-continuar-libro">
+      <svg class="icono" aria-hidden="true"><use href="#i-play"/></svg>
+      <span id="texto-continuar-libro">Empezar a escuchar</span>
+    </button>
+
+    <input type="file" id="input-portada" accept="image/jpeg,image/png,image/webp" hidden>
+
+    <section>
+      <h2 class="seccion-titulo">Capítulos</h2>
+      <div class="lista-capitulos" id="lista-capitulos"></div>
+    </section>
+  </main>
+
+  <!-- Lector: reproducción en voz alta -->
+  <main class="pantalla" id="lector" hidden>
+    <header class="encabezado">
+      <button type="button" class="boton-icono" data-volver="libro" aria-label="Volver">
+        <svg class="icono" aria-hidden="true"><use href="#i-atras"/></svg>
+      </button>
+      <div class="encabezado-texto">
+        <small>Estás escuchando</small>
+        <h1 id="titulo-lector"></h1>
+      </div>
+      <span class="encabezado-hueco"></span>
+    </header>
+
+    <section class="reproductor">
+      <div id="portada-lector" class="portada-lector"></div>
+
+      <div class="lector-titulos">
+        <h2 class="capitulo-actual" id="capitulo-actual"></h2>
+        <p class="progreso-texto" id="progreso-lector"></p>
+      </div>
+
+      <p class="frase-actual" id="frase-actual" aria-hidden="true"></p>
+
+      <div class="avance">
+        <input type="range" id="barra-progreso" min="0" max="1" value="0" step="1" aria-label="Avance del capítulo">
+        <div class="avance-etiquetas">
+          <span id="avance-porcentaje">0%</span>
+          <span id="avance-restante"></span>
+        </div>
+      </div>
+
+      <div class="controles">
+        <button type="button" class="control" id="btn-anterior" aria-label="Capítulo anterior">
+          <svg class="icono" aria-hidden="true"><use href="#i-anterior"/></svg>
+        </button>
+        <button type="button" class="control" id="btn-retroceder" aria-label="Volver una oración">
+          <svg class="icono" aria-hidden="true"><use href="#i-retroceder"/></svg>
+        </button>
+        <button type="button" class="control-principal" id="btn-reproducir" aria-label="Reproducir">
+          <svg class="icono" aria-hidden="true"><use id="icono-reproducir" href="#i-play"/></svg>
+        </button>
+        <button type="button" class="control" id="btn-avanzar" aria-label="Adelantar una oración">
+          <svg class="icono" aria-hidden="true"><use href="#i-avanzar"/></svg>
+        </button>
+        <button type="button" class="control" id="btn-siguiente" aria-label="Capítulo siguiente">
+          <svg class="icono" aria-hidden="true"><use href="#i-siguiente"/></svg>
+        </button>
+      </div>
+
+      <div class="ajustes">
+        <div class="campo">
+          <span class="campo-etiqueta" id="etiqueta-velocidad">Velocidad</span>
+          <div class="chips" id="chips-velocidad" role="group" aria-labelledby="etiqueta-velocidad"></div>
+        </div>
+        <label class="campo">
+          <span class="campo-etiqueta">Voz</span>
+          <select id="selector-voz"></select>
+        </label>
+      </div>
+    </section>
+  </main>
+
+  <!-- Mini reproductor: aparece fuera del lector mientras hay un libro cargado -->
+  <div class="mini-reproductor" id="mini-reproductor" hidden>
+    <span class="mini-avance"><span id="mini-barra"></span></span>
+    <button type="button" class="mini-info" id="mini-info" aria-label="Abrir el reproductor">
+      <span id="mini-portada"></span>
+      <span class="mini-texto">
+        <strong id="mini-titulo"></strong>
+        <small id="mini-capitulo"></small>
+      </span>
+    </button>
+    <button type="button" class="mini-play" id="mini-play" aria-label="Reproducir">
+      <svg class="icono" aria-hidden="true"><use id="mini-icono" href="#i-play"/></svg>
+    </button>
+  </div>
+
+  <!-- Hoja: flujo de importación -->
+  <div class="hoja-fondo" id="modal-importar" hidden role="dialog" aria-modal="true" aria-label="Importar libro">
+    <div class="hoja">
+      <span class="hoja-tirador" aria-hidden="true"></span>
 
       <!-- Paso 1: elegir tipo de archivo -->
-      <section class="modal-paso" id="paso-tipo-archivo">
-        <h2 class="modal-titulo">¿Qué querés importar?</h2>
-        <div class="modal-opciones">
+      <section class="hoja-paso" id="paso-tipo-archivo">
+        <h2 class="hoja-titulo">¿Qué querés importar?</h2>
+        <div class="hoja-opciones">
           <button type="button" class="opcion-formato" id="opcion-epub">
-            <span class="opcion-icono">📖</span>
+            <svg class="icono" aria-hidden="true"><use href="#i-libro"/></svg>
             <span class="opcion-label">EPUB</span>
+            <small>Listo en segundos</small>
           </button>
           <button type="button" class="opcion-formato" id="opcion-pdf">
-            <span class="opcion-icono">📄</span>
+            <svg class="icono" aria-hidden="true"><use href="#i-documento"/></svg>
             <span class="opcion-label">PDF</span>
+            <small>Con texto o escaneado</small>
           </button>
         </div>
-        <button type="button" class="boton-texto" id="modal-cerrar-1">Cancelar</button>
+        <button type="button" class="boton-texto" data-cerrar-hoja>Cancelar</button>
       </section>
 
       <!-- Paso 2a: EPUB — sube directamente -->
-      <section class="modal-paso" id="paso-epub" hidden>
-        <h2 class="modal-titulo">Importar EPUB</h2>
-        <p class="modal-desc">Elegí el archivo EPUB de tu biblioteca.</p>
+      <section class="hoja-paso" id="paso-epub" hidden>
+        <h2 class="hoja-titulo">Importar EPUB</h2>
+        <p class="hoja-desc">Elegí el archivo EPUB que querés escuchar.</p>
         <input type="file" id="input-epub" accept=".epub,application/epub+zip" hidden>
         <button type="button" class="boton-principal" id="btn-elegir-epub">Elegir archivo</button>
         <progress class="progreso-importar" id="progreso-importar" max="100" value="0" hidden></progress>
         <p class="aviso" id="aviso-epub" aria-live="polite"></p>
-        <button type="button" class="boton-texto" id="modal-cerrar-epub">Cancelar</button>
+        <button type="button" class="boton-texto" data-cerrar-hoja>Cancelar</button>
       </section>
 
       <!-- Paso 2b: PDF — elige tipo de documento -->
-      <section class="modal-paso" id="paso-pdf-tipo" hidden>
-        <h2 class="modal-titulo">¿Qué tipo de PDF es?</h2>
-        <div class="modal-opciones modal-opciones-col">
+      <section class="hoja-paso" id="paso-pdf-tipo" hidden>
+        <h2 class="hoja-titulo">¿Qué tipo de PDF es?</h2>
+        <p class="hoja-desc">Sirve para separar bien los capítulos. Se procesa en segundo plano.</p>
+        <div class="hoja-opciones hoja-opciones-col">
           <label class="opcion-radio">
             <input type="radio" name="tipo-pdf" value="novela" checked> Novela
           </label>
@@ -82,93 +270,56 @@
         <input type="file" id="input-pdf" accept=".pdf,application/pdf" hidden>
         <button type="button" class="boton-principal" id="btn-elegir-pdf">Elegir archivo PDF</button>
         <p class="aviso" id="aviso-pdf-tipo" aria-live="polite"></p>
-        <button type="button" class="boton-texto" id="modal-cerrar-pdf-tipo">Cancelar</button>
+        <button type="button" class="boton-texto" data-cerrar-hoja>Cancelar</button>
       </section>
-
     </div>
   </div>
 
-  <!-- Biblioteca: libros disponibles -->
-  <main class="pantalla" id="biblioteca" hidden>
-    <header class="encabezado">
-      <button type="button" class="volver" data-volver="inicio" aria-label="Volver">←</button>
-      <h1>Biblioteca</h1>
-    </header>
-    <p class="aviso" id="aviso-biblioteca"></p>
-    <section class="importaciones" id="importaciones" aria-label="Importaciones" hidden>
-      <h2 class="seccion-titulo">Importando</h2>
-      <div class="lista" id="lista-importaciones"></div>
-    </section>
-    <div class="lista" id="lista-libros"></div>
-  </main>
-
-  <!-- Libro: capítulos -->
-  <main class="pantalla" id="libro" hidden>
-    <header class="encabezado">
-      <button type="button" class="volver" data-volver="biblioteca" aria-label="Volver">←</button>
-      <h1 id="titulo-libro"></h1>
-    </header>
-    <div class="cabecera-libro">
-      <div id="portada-libro"></div>
-      <div class="datos-libro">
-        <p class="autor" id="autor-libro"></p>
-        <button type="button" class="boton-secundario" id="btn-cambiar-portada">Cambiar portada</button>
-        <button type="button" class="boton-secundario" id="btn-cambiar-titulo">Cambiar título</button>
-        <button type="button" class="boton-peligro" id="btn-borrar-libro">Borrar libro</button>
+  <!-- Hoja: opciones del libro -->
+  <div class="hoja-fondo" id="hoja-menu-libro" hidden role="dialog" aria-modal="true" aria-label="Opciones del libro">
+    <div class="hoja">
+      <span class="hoja-tirador" aria-hidden="true"></span>
+      <h2 class="hoja-titulo" id="menu-libro-titulo"></h2>
+      <div class="hoja-menu">
+        <button type="button" class="opcion-menu" id="btn-cambiar-portada">
+          <svg class="icono" aria-hidden="true"><use href="#i-imagen"/></svg> Cambiar portada
+        </button>
+        <button type="button" class="opcion-menu" id="btn-cambiar-titulo">
+          <svg class="icono" aria-hidden="true"><use href="#i-lapiz"/></svg> Cambiar título
+        </button>
+        <button type="button" class="opcion-menu peligro" id="btn-borrar-libro">
+          <svg class="icono" aria-hidden="true"><use href="#i-papelera"/></svg> Borrar libro
+        </button>
       </div>
+      <button type="button" class="boton-texto" data-cerrar-hoja>Cerrar</button>
     </div>
-    <p class="aviso" id="aviso-libro" aria-live="polite"></p>
-    <input type="file" id="input-portada" accept="image/jpeg,image/png,image/webp" hidden>
-    <div class="lista" id="lista-capitulos"></div>
-  </main>
-
-  <!-- Lector: reproducción en voz alta -->
-  <main class="pantalla" id="lector" hidden>
-    <header class="encabezado">
-      <button type="button" class="volver" data-volver="libro" aria-label="Volver">←</button>
-      <h1 id="titulo-lector"></h1>
-    </header>
-
-    <section class="reproductor">
-      <div id="portada-lector" class="portada-lector"></div>
-      <p class="capitulo-actual" id="capitulo-actual"></p>
-      <p class="progreso-texto" id="progreso-lector"></p>
-      <div class="barra"><div class="barra-relleno" id="barra-progreso"></div></div>
-
-      <div class="controles">
-        <button type="button" class="control" id="btn-anterior" aria-label="Capítulo anterior">⏮</button>
-        <button type="button" class="control control-principal" id="btn-reproducir">▶ Reproducir</button>
-        <button type="button" class="control" id="btn-siguiente" aria-label="Capítulo siguiente">⏭</button>
-      </div>
-
-      <label class="campo">
-        Velocidad
-        <select id="selector-velocidad">
-          <option value="0.8">0.8×</option>
-          <option value="1" selected>1×</option>
-          <option value="1.25">1.25×</option>
-          <option value="1.5">1.5×</option>
-        </select>
-      </label>
-
-      <label class="campo">
-        Voz
-        <select id="selector-voz"></select>
-      </label>
-    </section>
-  </main>
-
-  <!-- Mini reproductor: aparece fuera del lector mientras suena un capítulo -->
-  <div class="mini-reproductor" id="mini-reproductor" hidden>
-    <button type="button" class="mini-info" id="mini-info">
-      <span id="mini-portada"></span>
-      <span class="mini-texto">
-        <strong id="mini-titulo"></strong>
-        <small id="mini-capitulo"></small>
-      </span>
-    </button>
-    <button type="button" class="mini-play" id="mini-play" aria-label="Reproducir o pausar">▶</button>
   </div>
+
+  <!-- Hoja: cambiar título -->
+  <div class="hoja-fondo" id="hoja-titulo" hidden role="dialog" aria-modal="true" aria-label="Cambiar título">
+    <form class="hoja" id="form-titulo" novalidate>
+      <span class="hoja-tirador" aria-hidden="true"></span>
+      <h2 class="hoja-titulo">Cambiar título</h2>
+      <input type="text" class="campo-texto" id="input-titulo" maxlength="200" autocomplete="off" aria-label="Título del libro" enterkeyhint="done">
+      <p class="aviso" id="aviso-titulo" aria-live="polite"></p>
+      <button type="submit" class="boton-principal" id="btn-guardar-titulo">Guardar</button>
+      <button type="button" class="boton-texto" data-cerrar-hoja>Cancelar</button>
+    </form>
+  </div>
+
+  <!-- Hoja: confirmar borrado -->
+  <div class="hoja-fondo" id="hoja-borrar" hidden role="alertdialog" aria-modal="true" aria-labelledby="borrar-titulo">
+    <div class="hoja">
+      <span class="hoja-tirador" aria-hidden="true"></span>
+      <h2 class="hoja-titulo" id="borrar-titulo">¿Borrar este libro?</h2>
+      <p class="hoja-desc" id="borrar-desc"></p>
+      <p class="aviso" id="aviso-borrar" aria-live="polite"></p>
+      <button type="button" class="boton-principal boton-rojo" id="btn-confirmar-borrar">Borrar libro</button>
+      <button type="button" class="boton-texto" data-cerrar-hoja>Cancelar</button>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
   <script src="config.js"></script>
   <script src="racha.js"></script>
