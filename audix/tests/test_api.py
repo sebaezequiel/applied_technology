@@ -210,14 +210,14 @@ def test_ids_con_rutas_raras_devuelven_404(cliente):
 
 
 # ---------------------------------------------------------------------------
-# Tests de los endpoints PDF
+# Tests de los endpoints PDF (importación en segundo plano)
 # ---------------------------------------------------------------------------
 
+import time as _time
+
+
 def crear_pdf_bytes_simple(titulo: str = "Test PDF") -> bytes:
-    """
-    Crea un PDF mínimo con capa de texto usando reportlab.
-    Si reportlab no está disponible, genera un PDF mínimo hardcoded con texto simple.
-    """
+    """PDF mínimo con capa de texto. Devuelve b'' si reportlab no está instalado."""
     try:
         from reportlab.lib.pagesizes import A4
         from reportlab.pdfgen import canvas
@@ -230,28 +230,37 @@ def crear_pdf_bytes_simple(titulo: str = "Test PDF") -> bytes:
         c.setFont("Helvetica", 12)
         c.drawString(72, 700, "I")
         c.drawString(72, 670, "Este es el texto del primer capítulo.")
-        c.drawString(72, 650, "Continúa en la siguiente línea.")
         c.showPage()
-        c.drawString(72, 750, "II")
-        c.drawString(72, 720, "Este es el texto del segundo capítulo.")
+        c.drawString(72, 720, "II")
+        c.drawString(72, 690, "Este es el texto del segundo capítulo.")
         c.save()
         return buf.getvalue()
     except ImportError:
-        # PDF mínimo válido sin texto real (sirve para probar los errores)
         return b""
 
 
-def test_detectar_pdf_rechaza_no_pdf(cliente):
+def esperar_trabajo(cliente, trabajo_id: str, limite: float = 60.0) -> dict:
+    """Consulta el trabajo hasta que termine o se acabe el tiempo."""
+    fin = _time.time() + limite
+    while _time.time() < fin:
+        datos = cliente.get(f"/trabajos/{trabajo_id}").json()
+        if datos["estado"] != "en_curso":
+            return datos
+        _time.sleep(0.2)
+    raise AssertionError("El trabajo no terminó a tiempo")
+
+
+def test_importar_pdf_rechaza_no_pdf(cliente):
     respuesta = cliente.post(
-        "/libros/pdf/detectar",
-        files={"archivo": ("libro.epub", b"PK\x03\x04", "application/epub+zip")},
+        "/libros/pdf?tipo=novela",
+        files={"archivo": ("libro.epub", b"PK\x03\x04", "application/pdf")},
     )
     assert respuesta.status_code == 400
 
 
-def test_detectar_pdf_vacio_devuelve_400(cliente):
+def test_importar_pdf_vacio_devuelve_400(cliente):
     respuesta = cliente.post(
-        "/libros/pdf/detectar",
+        "/libros/pdf?tipo=novela",
         files={"archivo": ("vacio.pdf", b"", "application/pdf")},
     )
     assert respuesta.status_code == 400
@@ -265,62 +274,74 @@ def test_importar_pdf_tipo_invalido_devuelve_400(cliente):
     assert respuesta.status_code == 400
 
 
-def test_importar_pdf_vacio_devuelve_400(cliente):
-    respuesta = cliente.post(
-        "/libros/pdf?tipo=novela",
-        files={"archivo": ("vacio.pdf", b"", "application/pdf")},
-    )
-    assert respuesta.status_code == 400
-
-
-def test_importar_pdf_no_pdf_devuelve_400(cliente):
-    respuesta = cliente.post(
-        "/libros/pdf?tipo=novela",
-        files={"archivo": ("libro.epub", b"PK\x03\x04", "application/pdf")},
-    )
-    assert respuesta.status_code == 400
-
-
-def test_preview_pdf_tipo_invalido_devuelve_400(cliente):
-    respuesta = cliente.post(
-        "/libros/pdf/preview?tipo=cualquiera",
-        files={"archivo": ("libro.pdf", b"%PDF-1.4", "application/pdf")},
-    )
-    assert respuesta.status_code == 400
-
-
-def test_importar_pdf_con_reportlab(cliente, tmp_path):
-    """Test de integración completo si reportlab está disponible."""
-    pdf_bytes = crear_pdf_bytes_simple("Mi PDF de prueba")
+def test_importar_pdf_responde_202_con_trabajo_en_curso(cliente):
+    pdf_bytes = crear_pdf_bytes_simple("Trabajo")
     if not pdf_bytes:
         import pytest as _pytest
-        _pytest.skip("reportlab no disponible; se omite test de integración PDF")
-
+        _pytest.skip("reportlab no disponible")
     respuesta = cliente.post(
         "/libros/pdf?tipo=novela",
-        files={"archivo": ("mi-pdf.pdf", pdf_bytes, "application/pdf")},
+        files={"archivo": ("trabajo.pdf", pdf_bytes, "application/pdf")},
     )
-    assert respuesta.status_code == 201
-    datos = respuesta.json()
-    assert datos["capitulos"] >= 1
-    assert datos["portada"] is None
+    assert respuesta.status_code == 202
+    trabajo = respuesta.json()
+    assert trabajo["estado"] == "en_curso"
+    assert trabajo["nombre"] == "trabajo.pdf"
 
 
-def test_preview_pdf_con_reportlab(cliente, tmp_path):
-    """Preview sin guardar si reportlab está disponible."""
-    pdf_bytes = crear_pdf_bytes_simple("Preview test")
+def test_importacion_en_segundo_plano_termina_y_crea_el_libro(cliente, tmp_path):
+    pdf_bytes = crear_pdf_bytes_simple("Libro en segundo plano")
     if not pdf_bytes:
         import pytest as _pytest
-        _pytest.skip("reportlab no disponible; se omite test de integración PDF")
+        _pytest.skip("reportlab no disponible")
+    trabajo = cliente.post(
+        "/libros/pdf?tipo=novela",
+        files={"archivo": ("bg.pdf", pdf_bytes, "application/pdf")},
+    ).json()
 
-    respuesta = cliente.post(
-        "/libros/pdf/preview?tipo=cuento",
-        files={"archivo": ("preview.pdf", pdf_bytes, "application/pdf")},
-    )
-    assert respuesta.status_code == 200
-    datos = respuesta.json()
-    assert "capitulos" in datos
-    assert datos["tipo"] == "cuento"
+    final = esperar_trabajo(cliente, trabajo["id"])
+    assert final["estado"] == "listo", final
+    assert final["progreso"] == 100
+    assert final["libro_id"]
+    libro = cliente.get(f"/libros/{final['libro_id']}").json()
+    assert libro["titulo"]
+
+
+def test_trabajo_con_pdf_invalido_queda_en_error(cliente):
+    trabajo = cliente.post(
+        "/libros/pdf?tipo=novela",
+        files={"archivo": ("roto.pdf", b"esto no es un pdf", "application/pdf")},
+    ).json()
+    final = esperar_trabajo(cliente, trabajo["id"])
+    assert final["estado"] == "error"
+    assert final["error"]
+
+
+def test_listar_trabajos_incluye_el_creado(cliente):
+    pdf_bytes = crear_pdf_bytes_simple("Listado")
+    if not pdf_bytes:
+        import pytest as _pytest
+        _pytest.skip("reportlab no disponible")
+    trabajo = cliente.post(
+        "/libros/pdf?tipo=cuento",
+        files={"archivo": ("lista.pdf", pdf_bytes, "application/pdf")},
+    ).json()
+    ids = [t["id"] for t in cliente.get("/trabajos").json()]
+    assert trabajo["id"] in ids
+
+
+def test_trabajo_inexistente_devuelve_404(cliente):
+    assert cliente.get("/trabajos/no-existe").status_code == 404
+
+
+def test_quitar_trabajo_terminado(cliente):
+    trabajo = cliente.post(
+        "/libros/pdf?tipo=novela",
+        files={"archivo": ("roto2.pdf", b"nada", "application/pdf")},
+    ).json()
+    esperar_trabajo(cliente, trabajo["id"])
+    assert cliente.delete(f"/trabajos/{trabajo['id']}").status_code == 204
+    assert cliente.get(f"/trabajos/{trabajo['id']}").status_code == 404
 
 
 def test_renombrar_libro_cambia_el_titulo(cliente, tmp_path):

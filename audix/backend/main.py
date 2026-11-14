@@ -10,6 +10,7 @@ import os
 import re
 import shutil
 import tempfile
+import threading
 import unicodedata
 from pathlib import Path
 
@@ -20,7 +21,8 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from backend.pipeline.epub_a_capitulos import procesar_epub
-from backend.pipeline.pdf_a_capitulos import detectar_origen, previsualizar_pdf, procesar_pdf
+from backend import trabajos
+from backend.pipeline.pdf_a_capitulos import procesar_pdf
 
 RAIZ = Path(__file__).resolve().parent.parent
 DATA_DIR = Path(os.environ.get("AUDIX_DATA_DIR") or RAIZ / "data")
@@ -88,118 +90,94 @@ def health() -> dict:
 
 
 # ---------------------------------------------------------------------------
-# PDF: detectar origen y vista previa
+# PDF: importación en segundo plano
 # ---------------------------------------------------------------------------
 
-@app.post("/libros/pdf/detectar")
-def detectar_pdf(archivo: UploadFile) -> dict:
-    """
-    Recibe un PDF y devuelve si tiene capa de texto o es escaneado.
-    No guarda el archivo en disco.
-    """
-    if not archivo.filename or not archivo.filename.lower().endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="Solo se aceptan archivos PDF (terminan en .pdf)")
-
-    contenido = archivo.file.read(TAMANO_MAXIMO + 1)
-    if len(contenido) > TAMANO_MAXIMO:
-        raise HTTPException(status_code=413, detail="El archivo supera los 50 MB")
-    if not contenido:
-        raise HTTPException(status_code=400, detail="El archivo está vacío")
-
-    with tempfile.TemporaryDirectory() as temporal:
-        ruta = Path(temporal) / "libro.pdf"
-        ruta.write_bytes(contenido)
-        try:
-            origen = detectar_origen(ruta)
-        except Exception as error:
-            raise HTTPException(
-                status_code=422,
-                detail=f"No se pudo analizar el PDF: {error}",
-            ) from error
-
-    return {"origen": origen}
-
-
-@app.post("/libros/pdf/preview")
-def preview_pdf(archivo: UploadFile, tipo: str = "novela") -> dict:
-    """
-    Recibe un PDF y devuelve la lista de capítulos detectados (sin guardar).
-    Parámetro: tipo = novela | cuento | poesia | apuntes
-    """
+def _pedir_pdf(archivo: UploadFile, tipo: str) -> bytes:
+    """Valida el tipo y el archivo PDF, y devuelve su contenido."""
     if tipo not in TIPOS_PDF:
         raise HTTPException(status_code=400, detail=f"Tipo inválido. Usá: {', '.join(sorted(TIPOS_PDF))}")
-
     if not archivo.filename or not archivo.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Solo se aceptan archivos PDF (terminan en .pdf)")
-
     contenido = archivo.file.read(TAMANO_MAXIMO + 1)
     if len(contenido) > TAMANO_MAXIMO:
         raise HTTPException(status_code=413, detail="El archivo supera los 50 MB")
     if not contenido:
         raise HTTPException(status_code=400, detail="El archivo está vacío")
-
-    with tempfile.TemporaryDirectory() as temporal:
-        ruta = Path(temporal) / "libro.pdf"
-        ruta.write_bytes(contenido)
-        try:
-            capitulos = previsualizar_pdf(ruta, tipo=tipo)
-        except Exception as error:
-            raise HTTPException(
-                status_code=422,
-                detail=f"No se pudo leer el PDF: {error}",
-            ) from error
-
-    return {"tipo": tipo, "capitulos": capitulos}
+    return contenido
 
 
-@app.post("/libros/pdf", status_code=201)
-def importar_pdf(archivo: UploadFile, tipo: str = "novela") -> dict:
-    """
-    Importa un PDF con capa de texto.
-    Parámetro: tipo = novela | cuento | poesia | apuntes
-    """
-    if tipo not in TIPOS_PDF:
-        raise HTTPException(status_code=400, detail=f"Tipo inválido. Usá: {', '.join(sorted(TIPOS_PDF))}")
+def _procesar_pdf_en_segundo_plano(trabajo_id: str, ruta: Path, tipo: str) -> None:
+    """Corre en un hilo aparte. Actualiza el progreso y guarda el libro al terminar."""
+    carpeta_temporal = ruta.parent
+    try:
+        salida = carpeta_temporal / "salida"
 
-    if not archivo.filename or not archivo.filename.lower().endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="Solo se aceptan archivos PDF (terminan en .pdf)")
+        def avance(hechas: int, total: int) -> None:
+            # Hasta que termina, el progreso no llega a 100.
+            porcentaje = min(99, int(hechas * 100 / max(total, 1)))
+            trabajos.actualizar(trabajo_id, progreso=porcentaje)
 
-    contenido = archivo.file.read(TAMANO_MAXIMO + 1)
-    if len(contenido) > TAMANO_MAXIMO:
-        raise HTTPException(status_code=413, detail="El archivo supera los 50 MB")
-    if not contenido:
-        raise HTTPException(status_code=400, detail="El archivo está vacío")
-
-    with tempfile.TemporaryDirectory() as temporal:
-        ruta = Path(temporal) / "libro.pdf"
-        ruta.write_bytes(contenido)
-        salida = Path(temporal) / "salida"
-
-        try:
-            indice = procesar_pdf(ruta, salida, tipo=tipo)
-        except Exception as error:
-            raise HTTPException(
-                status_code=422,
-                detail=f"No se pudo procesar el PDF: {error}",
-            ) from error
-
+        indice = procesar_pdf(ruta, salida, tipo=tipo, progreso=avance)
         if not indice["capitulos"]:
-            raise HTTPException(
-                status_code=422,
-                detail="No se encontró texto en el PDF. Si es un escaneado, revisá que tenga páginas con contenido legible.",
-            )
+            raise ValueError("No se encontró texto en el PDF.")
 
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         destino = _carpeta_libre(_slug(indice["titulo"]))
         shutil.move(str(salida), str(destino))
+        trabajos.actualizar(trabajo_id, estado="listo", progreso=100, libro_id=destino.name)
+    except Exception as error:
+        trabajos.actualizar(trabajo_id, estado="error", error=str(error) or "Error desconocido")
+    finally:
+        shutil.rmtree(carpeta_temporal, ignore_errors=True)
 
-    return {
-        "id": destino.name,
-        "titulo": indice["titulo"],
-        "autor": indice["autor"],
-        "capitulos": len(indice["capitulos"]),
-        "portada": None,
-    }
+
+@app.post("/libros/pdf", status_code=202)
+def importar_pdf(archivo: UploadFile, tipo: str = "novela") -> dict:
+    """
+    Inicia la importación de un PDF en segundo plano.
+    Responde enseguida con el trabajo; el progreso se consulta en GET /trabajos/{id}.
+    """
+    contenido = _pedir_pdf(archivo, tipo)
+    trabajo = trabajos.crear(nombre=archivo.filename, tipo=tipo)
+
+    # El archivo se guarda en una carpeta temporal que el hilo borra al terminar.
+    carpeta_temporal = Path(tempfile.mkdtemp(prefix="audix-pdf-"))
+    # Se conserva el nombre original: sirve de título si el PDF no tiene metadatos.
+    ruta = carpeta_temporal / (Path(archivo.filename).name or "libro.pdf")
+    ruta.write_bytes(contenido)
+
+    threading.Thread(
+        target=_procesar_pdf_en_segundo_plano,
+        args=(trabajo["id"], ruta, tipo),
+        daemon=True,
+    ).start()
+    return trabajo
+
+
+@app.get("/trabajos")
+def listar_trabajos() -> list[dict]:
+    return trabajos.listar()
+
+
+@app.get("/trabajos/{trabajo_id}")
+def estado_trabajo(trabajo_id: str) -> dict:
+    trabajo = trabajos.obtener(trabajo_id)
+    if trabajo is None:
+        raise HTTPException(status_code=404, detail="Trabajo no encontrado")
+    return trabajo
+
+
+@app.delete("/trabajos/{trabajo_id}", status_code=204)
+def quitar_trabajo(trabajo_id: str) -> Response:
+    """Quita un trabajo de la lista (solo si ya no está en curso)."""
+    trabajo = trabajos.obtener(trabajo_id)
+    if trabajo is None:
+        raise HTTPException(status_code=404, detail="Trabajo no encontrado")
+    if trabajo["estado"] == "en_curso":
+        raise HTTPException(status_code=409, detail="El trabajo todavía está en curso")
+    trabajos.quitar(trabajo_id)
+    return Response(status_code=204)
 
 
 @app.get("/libros")
