@@ -86,25 +86,6 @@ def ocr_imagen(imagen: Image.Image) -> str:
     return pytesseract.image_to_string(imagen, lang=LENGUAJE, config="--psm 4").strip()
 
 
-def paginas_del_pdf(ruta: Path):
-    """
-    Renderiza cada página del PDF y devuelve las imágenes listas para OCR.
-    Una página de doble ancho se devuelve como dos imágenes, en orden de lectura.
-    """
-    documento = pymupdf.open(str(ruta))
-    try:
-        for pagina in documento:
-            escala = DPI_OCR / 72
-            pix = pagina.get_pixmap(matrix=pymupdf.Matrix(escala, escala), colorspace=pymupdf.csGRAY)
-            imagen = Image.frombytes("L", (pix.width, pix.height), pix.samples)
-            if es_doble_pagina(imagen.width, imagen.height):
-                yield from dividir_doble_pagina(imagen)
-            else:
-                yield imagen
-    finally:
-        documento.close()
-
-
 def es_ruido_ocr(linea: str) -> bool:
     """
     Descarta líneas que el OCR produce a partir de marcas del escáner o del espiral:
@@ -114,15 +95,41 @@ def es_ruido_ocr(linea: str) -> bool:
     return letras < 3 or letras / max(len(linea), 1) < 0.5
 
 
-def extraer_lineas_escaneado(ruta: Path) -> list[list[str]]:
+def imagenes_de_pagina(pagina) -> list[Image.Image]:
+    """
+    Renderiza una página del PDF y devuelve sus imágenes listas para OCR.
+    Una página de doble ancho se devuelve como dos imágenes, en orden de lectura.
+    """
+    escala = DPI_OCR / 72
+    pix = pagina.get_pixmap(matrix=pymupdf.Matrix(escala, escala), colorspace=pymupdf.csGRAY)
+    imagen = Image.frombytes("L", (pix.width, pix.height), pix.samples)
+    if es_doble_pagina(imagen.width, imagen.height):
+        return dividir_doble_pagina(imagen)
+    return [imagen]
+
+
+def extraer_lineas_escaneado(ruta: Path, progreso=None) -> list[list[str]]:
     """
     Hace OCR de todo el PDF y devuelve una lista de páginas, cada una con sus líneas.
     Las mitades sin texto (páginas en blanco) se descartan.
+
+    progreso: función opcional progreso(hechas, total), llamada tras cada página del PDF.
     """
     paginas: list[list[str]] = []
-    for imagen in paginas_del_pdf(ruta):
-        texto = ocr_imagen(imagen)
-        lineas = [linea.strip() if not es_ruido_ocr(linea.strip()) else "" for linea in texto.splitlines()]
-        if any(lineas):
-            paginas.append(lineas)
+    documento = pymupdf.open(str(ruta))
+    try:
+        total = documento.page_count
+        for numero, pagina in enumerate(documento, start=1):
+            for imagen in imagenes_de_pagina(pagina):
+                texto = ocr_imagen(imagen)
+                lineas = [
+                    linea.strip() if not es_ruido_ocr(linea.strip()) else ""
+                    for linea in texto.splitlines()
+                ]
+                if any(lineas):
+                    paginas.append(lineas)
+            if progreso:
+                progreso(numero, total)
+    finally:
+        documento.close()
     return paginas

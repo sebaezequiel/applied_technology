@@ -589,3 +589,46 @@ button {
   color: var(--tinta-suave, #888);
   flex-shrink: 0;
 }
+
+/* ---- Importaciones en segundo plano ---- */
+.importaciones {
+  margin: 8px 0 20px;
+}
+
+.seccion-titulo {
+  font-size: 0.95rem;
+  font-weight: 700;
+  margin: 0 0 10px;
+}
+
+.fila-importacion {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1.5px solid var(--borde, #e0dbd0);
+  border-radius: 12px;
+  background: #fff;
+  margin-bottom: 8px;
+}
+
+.fila-importacion .texto-libro {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.fila-importacion progress {
+  width: 100%;
+  accent-color: var(--clay);
+}
+
+.acciones-importacion {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  flex-shrink: 0;
+}
