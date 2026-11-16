@@ -78,7 +78,35 @@ const Lector = (() => {
     localStorage.removeItem(clavProgreso(libroId));
   }
 
+  // Mantiene la pantalla encendida mientras se reproduce, para que Android no
+  // pause la voz al bloquearla. En pausa la pantalla se bloquea normal.
+  let bloqueoPantalla = null;
+
+  async function sincronizarPantalla() {
+    if (!("wakeLock" in navigator)) return;
+    try {
+      if (estado.reproduciendo && !bloqueoPantalla) {
+        bloqueoPantalla = await navigator.wakeLock.request("screen");
+        bloqueoPantalla.addEventListener("release", () => {
+          bloqueoPantalla = null;
+        });
+      } else if (!estado.reproduciendo && bloqueoPantalla) {
+        const bloqueo = bloqueoPantalla;
+        bloqueoPantalla = null;
+        await bloqueo.release();
+      }
+    } catch {
+      // El navegador puede negarlo (p. ej. batería baja); la lectura sigue igual.
+    }
+  }
+
+  // El sistema suelta el bloqueo al ocultar la pestaña: se vuelve a pedir al volver.
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") sincronizarPantalla();
+  });
+
   function notificarCambio() {
+    sincronizarPantalla();
     if (estado.alCambiar) estado.alCambiar({ ...estado });
   }
 
