@@ -303,7 +303,7 @@ if (-not (Test-Path $DataDir)) {
 # Se quita la herencia y se da acceso solo a SYSTEM, Administrators y la cuenta de servicio
 & icacls.exe $DataDir /inheritance:r `
     /grant:r "*S-1-5-18:(OI)(CI)F" `
-    /grant:r "*$SidAdmins:(OI)(CI)F" `
+    /grant:r "*${SidAdmins}:(OI)(CI)F" `
     /grant:r "${NombreUsuario}:(OI)(CI)M" | Out-Null
 if ($LASTEXITCODE -eq 0) { OK "Acceso de escritura a: $DataDir" }
 else { WARN "No pude restringir $DataDir. Revisa los permisos manualmente." }
