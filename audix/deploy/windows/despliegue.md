@@ -72,7 +72,7 @@ Qué protege a Audix, de afuera hacia adentro:
 
 ### Límites conocidos
 
-- El servicio corre con la cuenta `LocalSystem` de Windows, que tiene privilegios altos. Un fallo grave en Audix o en una de sus bibliotecas al procesar un archivo malicioso tendría ese alcance. Importá solo archivos de origen confiable.
+- Por defecto el servicio corre con la cuenta `LocalSystem` de Windows, que tiene privilegios altos. Un fallo grave en Audix o en una de sus bibliotecas al procesar un archivo malicioso tendría ese alcance. Podés reducir este riesgo con `.\4-cuenta-servicio.ps1` (ver sección anterior). En cualquier caso, importá solo archivos de origen confiable.
 - La clave protege la app, no el disco: quien tenga una cuenta de administrador en la PC puede leer los libros.
 - En una PC de trabajo, estas medidas no reemplazan el permiso de la empresa para instalar software de acceso remoto.
 
@@ -85,6 +85,50 @@ Get-Content C:\audix-data\logs\audix-error.log -Tail 40   # registro de errores
 & "C:\Program Files\Tailscale\tailscale.exe" status       # conexión de Tailscale
 & "C:\Program Files\Tailscale\tailscale.exe" serve status # dirección publicada
 ```
+
+## Paso opcional: cuenta de servicio dedicada (recomendado)
+
+Por defecto Audix corre como `LocalSystem`, la cuenta más poderosa de Windows. Si la app tuviera una vulnerabilidad grave, el atacante heredaría esos privilegios.
+
+Podés reducir ese riesgo creando una cuenta local sin permisos de administrador que solo pueda leer el código y escribir en `C:\audix-data`:
+
+```powershell
+.\4-cuenta-servicio.ps1
+```
+
+El script hace todo automáticamente:
+
+1. Crea el usuario local `audix-svc` con una contraseña aleatoria de 32 caracteres.
+2. Le da acceso de lectura al código y al venv de Python.
+3. Le da acceso de escritura solo a `C:\audix-data`.
+4. Reconfigura el servicio para que corra con esa cuenta.
+5. Verifica que el servicio arranca y responde.
+
+Si algo falla (por ejemplo, el venv está en una carpeta inaccesible), el servicio no arranca y el script te avisa. Para volver al estado anterior en un solo comando:
+
+```powershell
+.\4-revertir-cuenta.ps1
+```
+
+**Parámetros opcionales de `4-cuenta-servicio.ps1`:**
+
+| Parámetro | Por defecto | Para qué |
+|---|---|---|
+| `-ProyectoDir` | autodetectado | Raíz del repositorio |
+| `-DataDir` | `C:\audix-data` | Carpeta de datos |
+| `-NombreUsuario` | `audix-svc` | Nombre del usuario local |
+
+**Si el venv está en tu perfil de usuario** (por ejemplo `C:\Users\Sebastian\.venv`), el script intenta darle acceso al usuario de servicio. Si eso no alcanza, copiá el venv dentro del repositorio:
+
+```powershell
+# Desde la raiz del repo
+python -m venv .venv
+.venv\Scripts\pip install -r audix\backend\requirements.txt
+```
+
+Y después volvé a ejecutar `.\1-instalar-servicio.ps1` para que el servicio use el nuevo venv, seguido de `.\4-cuenta-servicio.ps1`.
+
+---
 
 ## Actualizar Audix
 
