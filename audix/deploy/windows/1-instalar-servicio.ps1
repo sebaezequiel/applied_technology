@@ -62,7 +62,7 @@ if ($ProyectoDir -eq "") {
     INFO "Directorio del proyecto: $ProyectoDir"
 }
 
-$BackendDir = Join-Path $ProyectoDir "audix\backend"
+$AudixDir = Join-Path $ProyectoDir "audix"
 
 # -- 2. Detectar Python / entorno virtual -------------------------------------
 INFO "Buscando Python..."
@@ -165,8 +165,8 @@ if ($Existing) {
 
 # Instalar
 & $NssmExe install $ServiceName $PythonExe
-& $NssmExe set     $ServiceName AppParameters   "-m uvicorn main:app --host 0.0.0.0 --port $Puerto"
-& $NssmExe set     $ServiceName AppDirectory    $BackendDir
+& $NssmExe set     $ServiceName AppParameters   "-m uvicorn backend.main:app --host 0.0.0.0 --port $Puerto"
+& $NssmExe set     $ServiceName AppDirectory    $AudixDir
 & $NssmExe set     $ServiceName AppEnvironmentExtra "AUDIX_DATA_DIR=$DataDir"
 & $NssmExe set     $ServiceName DisplayName     "Audix - Servidor de audiolibros"
 & $NssmExe set     $ServiceName Description     "Backend FastAPI de Audix. Sirve la API y el frontend PWA."
