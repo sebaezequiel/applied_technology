@@ -26,21 +26,34 @@ audix/
 
 Doble clic en `iniciar-audix.bat`. La primera vez crea el entorno virtual e instala las dependencias, y abre la app en el navegador de la PC.
 
-Desde el celular (misma Wi-Fi), abrí `http://192.168.0.39:8000`. La IP la ves con `ipconfig` en la "Dirección IPv4".
+La primera vez creá la clave de acceso (sin clave no entra nadie):
 
-Si preferís a mano:
+```powershell
+cd audix
+.venv\Scripts\activate
+python -m backend.seguridad
+```
+
+Si preferís arrancar a mano:
 
 ```powershell
 cd audix
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
-uvicorn backend.main:app --host 0.0.0.0 --port 8000
+uvicorn backend.main:app --host 127.0.0.1 --port 8000
 ```
 
-Si no carga desde el celular, revisá que Windows Defender Firewall permita el puerto 8000 en red privada.
+Audix escucha solo en la propia PC (`127.0.0.1`). Para usarla desde el celular, dentro o fuera de casa, con HTTPS y como app instalada, seguí [deploy/windows/despliegue.md](deploy/windows/despliegue.md).
 
-Sin HTTPS, el navegador no registra el service worker, así que la app funciona pero no queda disponible sin conexión. Para instalarla como app y usarla offline hace falta publicarla con HTTPS, lo vemos más adelante.
+## Seguridad
+
+- Todo pide iniciar sesión con la clave, salvo los archivos de la PWA y `/health`.
+- La clave se guarda derivada con scrypt; la sesión va en una cookie `HttpOnly`, `Secure` y `SameSite=Strict` que dura 30 días.
+- Cinco claves erradas seguidas bloquean los intentos (30 segundos, y se duplica hasta 15 minutos).
+- El servidor no acepta conexiones de la red local ni pedidos disparados desde otros sitios web.
+
+El detalle y lo que queda a tu cargo está en la guía de despliegue.
 
 ## Procesar un EPUB sin la API
 

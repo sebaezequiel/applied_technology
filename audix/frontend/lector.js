@@ -134,7 +134,7 @@ const Lector = (() => {
     estado.cargando = true;
     notificarCambio();
     try {
-      const respuesta = await fetch(`${API}/libros/${estado.libroId}/capitulos/${numero}`);
+      const respuesta = await Sesion.pedir(`${API}/libros/${estado.libroId}/capitulos/${numero}`);
       if (!respuesta.ok) throw new Error(`No se pudo cargar el capítulo ${numero}`);
       const datos = await respuesta.json();
 

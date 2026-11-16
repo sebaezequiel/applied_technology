@@ -13,11 +13,13 @@ if not exist ".venv\Scripts\python.exe" (
 
 echo.
 echo Audix esta corriendo en esta PC: http://localhost:8000
-echo Desde el celular (misma Wi-Fi) usa la IP de esta PC y el puerto 8000.
+echo Solo se puede abrir desde esta PC. Para usarla desde el celular,
+echo segui la guia deploy\windows\despliegue.md (Tailscale, con HTTPS).
+echo Si todavia no creaste la clave: python -m backend.seguridad
 echo Para apagar Audix, cerra esta ventana.
 echo.
 
 start "" http://localhost:8000
-python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000
+python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
 
 pause

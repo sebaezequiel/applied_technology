@@ -384,7 +384,7 @@ function pintarBiblioteca() {
       estado.textContent = `Capítulo ${avance.numero} de ${libro.capitulos}`;
       const barra = document.createElement("span");
       barra.className = "barra-fina";
-      barra.innerHTML = `<span style="width:${Math.round(avance.fraccion * 100)}%"></span>`;
+      barra.appendChild(document.createElement("span")).style.width = `${Math.round(avance.fraccion * 100)}%`;
       texto.append(estado, barra);
     } else {
       estado.textContent = `${libro.capitulos} ${libro.capitulos === 1 ? "capítulo" : "capítulos"} · Sin empezar`;
@@ -407,7 +407,7 @@ async function renderBiblioteca() {
   else pintarEsqueletos();
 
   try {
-    const respuesta = await fetch(`${API}/libros`);
+    const respuesta = await Sesion.pedir(`${API}/libros`);
     if (!respuesta.ok) throw new Error(await mensajeDeError(respuesta));
     librosCache = await respuesta.json();
     pintarBiblioteca();
@@ -431,7 +431,7 @@ async function renderBiblioteca() {
 
 async function pedirLibro(libroId) {
   try {
-    const respuesta = await fetch(`${API}/libros/${libroId}`);
+    const respuesta = await Sesion.pedir(`${API}/libros/${libroId}`);
     if (!respuesta.ok) throw new Error(await mensajeDeError(respuesta));
     return await respuesta.json();
   } catch (error) {
@@ -529,7 +529,7 @@ async function cambiarPortada(archivo) {
   formulario.append("archivo", archivo);
 
   try {
-    const respuesta = await fetch(`${API}/libros/${libroActual.id}/portada`, {
+    const respuesta = await Sesion.pedir(`${API}/libros/${libroActual.id}/portada`, {
       method: "PUT",
       body: formulario,
     });
@@ -592,7 +592,7 @@ async function guardarTitulo(evento) {
   }
   boton.disabled = true;
   try {
-    const respuesta = await fetch(`${API}/libros/${libroActual.id}`, {
+    const respuesta = await Sesion.pedir(`${API}/libros/${libroActual.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ titulo: nuevoTitulo }),
@@ -627,7 +627,7 @@ async function borrarLibroActual() {
   const id = libroActual.id;
   boton.disabled = true;
   try {
-    const respuesta = await fetch(`${API}/libros/${id}`, { method: "DELETE" });
+    const respuesta = await Sesion.pedir(`${API}/libros/${id}`, { method: "DELETE" });
     if (!respuesta.ok) {
       aviso.textContent = await mensajeDeError(respuesta);
       return;
@@ -742,7 +742,7 @@ function importarPdf(archivo, tipo) {
 
   const formulario = new FormData();
   formulario.append("archivo", archivo);
-  fetch(`${API}/libros/pdf?tipo=${tipo}`, { method: "POST", body: formulario })
+  Sesion.pedir(`${API}/libros/pdf?tipo=${tipo}`, { method: "POST", body: formulario })
     .then(async (respuesta) => {
       const datos = await respuesta.json().catch(() => ({}));
       if (!respuesta.ok) {
@@ -767,7 +767,7 @@ async function cargarImportaciones() {
   clearTimeout(_timerImportaciones);
   let trabajos = [];
   try {
-    const respuesta = await fetch(`${API}/trabajos`);
+    const respuesta = await Sesion.pedir(`${API}/trabajos`);
     if (respuesta.ok) trabajos = await respuesta.json();
   } catch {
     // Sin conexión: se reintenta en el próximo ciclo.
@@ -787,7 +787,7 @@ async function cargarImportaciones() {
 
 async function quitarTrabajo(trabajoId) {
   try {
-    await fetch(`${API}/trabajos/${trabajoId}`, { method: "DELETE" });
+    await Sesion.pedir(`${API}/trabajos/${trabajoId}`, { method: "DELETE" });
   } catch {
     // Si falla, la fila sigue ahí y se puede volver a intentar.
   }
@@ -816,7 +816,7 @@ function pintarImportaciones(trabajos) {
       barra.className = "barra-fina";
       barra.setAttribute("role", "progressbar");
       barra.setAttribute("aria-valuenow", trabajo.progreso);
-      barra.innerHTML = `<span style="width:${trabajo.progreso}%"></span>`;
+      barra.appendChild(document.createElement("span")).style.width = `${Number(trabajo.progreso) || 0}%`;
       texto.append(nombre, detalle, barra);
     } else if (trabajo.estado === "listo") {
       detalle.textContent = "Listo para escuchar";
@@ -1139,3 +1139,7 @@ function iniciar() {
 }
 
 document.addEventListener("DOMContentLoaded", iniciar);
+
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("sw.js");
+}

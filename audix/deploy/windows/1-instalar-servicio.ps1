@@ -2,7 +2,7 @@
 <#
 .SYNOPSIS
   Instala Audix como servicio de Windows con NSSM.
-  Audix arranca automáticamente cuando enciende la PC,
+  Audix arranca automaticamente cuando enciende la PC,
   sin necesidad de que haya un usuario logueado.
 
 .NOTAS
@@ -16,12 +16,12 @@
 #>
 
 param(
-    # Directorio raíz del repositorio (donde está la carpeta audix\)
-    # Si lo dejás vacío, el script intenta detectarlo automáticamente.
+    # Directorio raiz del repositorio (donde esta la carpeta audix\)
+    # Si lo dejas vacio, el script intenta detectarlo automaticamente.
     [string]$ProyectoDir = "",
 
-    # Carpeta donde Audix guarda los libros y el índice.
-    # Tiene que ser la misma que ya usás en desarrollo.
+    # Carpeta donde Audix guarda los libros y el indice.
+    # Tiene que ser la misma que ya usas en desarrollo.
     [string]$DataDir = "C:\audix-data",
 
     # Puerto en el que escucha Audix.
@@ -31,40 +31,40 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-# ── Colores ──────────────────────────────────────────────────────────────────
-function OK   { param([string]$m) Write-Host "  ✓ $m" -ForegroundColor Green  }
-function INFO { param([string]$m) Write-Host "  · $m" -ForegroundColor Cyan   }
+# -- Colores ------------------------------------------------------------------
+function OK   { param([string]$m) Write-Host "  [OK] $m" -ForegroundColor Green  }
+function INFO { param([string]$m) Write-Host "  - $m" -ForegroundColor Cyan   }
 function WARN { param([string]$m) Write-Host "  ! $m" -ForegroundColor Yellow }
-function ERR  { param([string]$m) Write-Host "  ✗ $m" -ForegroundColor Red; exit 1 }
+function ERR  { param([string]$m) Write-Host "  [ERROR] $m" -ForegroundColor Red; exit 1 }
 
 Write-Host ""
-Write-Host "══════════════════════════════════════════" -ForegroundColor Blue
-Write-Host "   Audix · Instalación como servicio       " -ForegroundColor Blue
-Write-Host "══════════════════════════════════════════" -ForegroundColor Blue
+Write-Host "==========================================" -ForegroundColor Blue
+Write-Host "   Audix - Instalacion como servicio       " -ForegroundColor Blue
+Write-Host "==========================================" -ForegroundColor Blue
 Write-Host ""
 
-# ── 1. Detectar directorio del proyecto ──────────────────────────────────────
+# -- 1. Detectar directorio del proyecto --------------------------------------
 if ($ProyectoDir -eq "") {
     # Buscar hacia arriba desde el script
     $candidato = Split-Path -Parent $PSScriptRoot  # audix\deploy
     $candidato = Split-Path -Parent $candidato     # audix
-    $candidato = Split-Path -Parent $candidato     # raíz del repo
+    $candidato = Split-Path -Parent $candidato     # raiz del repo
     if (Test-Path "$candidato\audix\backend\main.py") {
         $ProyectoDir = $candidato
         INFO "Proyecto detectado: $ProyectoDir"
     } else {
-        ERR "No pude detectar el directorio del proyecto. Ejecutá el script con -ProyectoDir 'C:\ruta\al\repo'"
+        ERR "No pude detectar el directorio del proyecto. Ejecuta el script con -ProyectoDir 'C:\ruta\al\repo'"
     }
 } else {
     if (-not (Test-Path "$ProyectoDir\audix\backend\main.py")) {
-        ERR "No encontré audix\backend\main.py en '$ProyectoDir'. Verificá la ruta."
+        ERR "No encontre audix\backend\main.py en '$ProyectoDir'. Verifica la ruta."
     }
     INFO "Directorio del proyecto: $ProyectoDir"
 }
 
-$BackendDir = Join-Path $ProyectoDir "audix\backend"
+$AudixDir = Join-Path $ProyectoDir "audix"
 
-# ── 2. Detectar Python / entorno virtual ─────────────────────────────────────
+# -- 2. Detectar Python / entorno virtual -------------------------------------
 INFO "Buscando Python..."
 
 $PythonExe = ""
@@ -88,21 +88,21 @@ foreach ($v in $VenvCandidatos) {
 if ($PythonExe -eq "") {
     try {
         $PythonExe = (Get-Command python -ErrorAction Stop).Source
-        WARN "No encontré un venv. Usando Python del sistema: $PythonExe"
+        WARN "No encontre un venv. Usando Python del sistema: $PythonExe"
         WARN "Se recomienda tener un venv con las dependencias."
     } catch {
-        ERR "No encontré Python. Instalá Python 3.10+ y/o creá un venv con 'python -m venv .venv'."
+        ERR "No encontre Python. Instala Python 3.10+ y/o crea un venv con 'python -m venv .venv'."
     }
 }
 
-# Verificar que FastAPI esté disponible
+# Verificar que FastAPI este disponible
 $TestImport = & $PythonExe -c "import fastapi; import uvicorn" 2>&1
 if ($LASTEXITCODE -ne 0) {
-    ERR "Faltan dependencias. Activá tu venv y ejecutá: pip install -r audix/backend/requirements.txt"
+    ERR "Faltan dependencias. Activa tu venv y ejecuta: pip install -r audix/backend/requirements.txt"
 }
 OK "Dependencias verificadas (fastapi, uvicorn)"
 
-# ── 3. Crear la carpeta de datos ──────────────────────────────────────────────
+# -- 3. Crear la carpeta de datos ----------------------------------------------
 if (-not (Test-Path $DataDir)) {
     New-Item -ItemType Directory -Path $DataDir | Out-Null
     OK "Carpeta de datos creada: $DataDir"
@@ -110,7 +110,34 @@ if (-not (Test-Path $DataDir)) {
     INFO "Carpeta de datos: $DataDir"
 }
 
-# ── 4. Descargar NSSM ─────────────────────────────────────────────────────────
+# Si la carpeta todavia no tiene libros, se copian los de audix\data
+# (donde los deja iniciar-audix.bat). Los originales no se tocan.
+$DatosViejos = Join-Path $AudixDir "data"
+$LibrosNuevos = @(Get-ChildItem -Path $DataDir -Directory -ErrorAction SilentlyContinue |
+                  Where-Object { Test-Path (Join-Path $_.FullName "indice.json") })
+if ($LibrosNuevos.Count -eq 0 -and (Test-Path $DatosViejos) -and
+    ((Resolve-Path $DatosViejos).Path -ne (Resolve-Path $DataDir).Path)) {
+    $LibrosViejos = @(Get-ChildItem -Path $DatosViejos -Directory |
+                      Where-Object { Test-Path (Join-Path $_.FullName "indice.json") })
+    foreach ($Libro in $LibrosViejos) {
+        Copy-Item -Path $Libro.FullName -Destination (Join-Path $DataDir $Libro.Name) -Recurse
+    }
+    if ($LibrosViejos.Count -gt 0) {
+        OK "Se copiaron $($LibrosViejos.Count) libros desde $DatosViejos"
+    }
+}
+
+# Solo el sistema y los administradores pueden leer la carpeta de datos
+# (libros, registros y el archivo de la clave). Se usan identificadores fijos
+# porque los nombres de los grupos cambian segun el idioma de Windows.
+& icacls.exe $DataDir /inheritance:r /grant:r "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-544:(OI)(CI)F" | Out-Null
+if ($LASTEXITCODE -eq 0) {
+    OK "Carpeta de datos restringida a administradores"
+} else {
+    WARN "No se pudieron restringir los permisos de $DataDir"
+}
+
+# -- 4. Descargar NSSM ---------------------------------------------------------
 INFO "Verificando NSSM..."
 $NssmDir  = "$env:ProgramFiles\nssm"
 $NssmExe  = "$NssmDir\nssm.exe"
@@ -143,32 +170,36 @@ if (-not (Test-Path $NssmExe)) {
 
         OK "NSSM instalado en: $NssmExe"
     } catch {
-        ERR "No pude descargar NSSM. Chequeá tu conexión o descargalo manualmente desde https://nssm.cc y copiá nssm.exe a '$NssmDir'."
+        ERR "No pude descargar NSSM. Chequea tu conexion o descargalo manualmente desde https://nssm.cc y copia nssm.exe a '$NssmDir'."
     }
 } else {
-    OK "NSSM ya está instalado"
+    OK "NSSM ya esta instalado"
 }
 
-# ── 5. Instalar / actualizar el servicio ─────────────────────────────────────
+# -- 5. Instalar / actualizar el servicio -------------------------------------
 $ServiceName = "Audix"
 INFO "Configurando el servicio '$ServiceName'..."
 
-# Si ya existe, pararlo y eliminarlo para reconfigurar
+# Si ya existe se reconfigura en el lugar. No se borra y se vuelve a crear:
+# Windows tarda en borrar un servicio y la creacion siguiente falla.
 $Existing = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
 if ($Existing) {
-    WARN "El servicio ya existe. Reconfigurando..."
-    if ($Existing.Status -eq "Running") {
-        & $NssmExe stop $ServiceName confirm | Out-Null
+    INFO "El servicio ya existe. Actualizando su configuracion..."
+    if ($Existing.Status -ne "Stopped") {
+        & $NssmExe stop $ServiceName | Out-Null
     }
-    & $NssmExe remove $ServiceName confirm | Out-Null
+    & $NssmExe set $ServiceName Application $PythonExe
+} else {
+    & $NssmExe install $ServiceName $PythonExe
 }
 
-# Instalar
-& $NssmExe install $ServiceName $PythonExe
-& $NssmExe set     $ServiceName AppParameters   "-m uvicorn main:app --host 0.0.0.0 --port $Puerto"
-& $NssmExe set     $ServiceName AppDirectory    $BackendDir
+# --host 127.0.0.1: Audix solo atiende conexiones de esta misma PC.
+# Desde afuera se entra unicamente por Tailscale (HTTPS); la red local
+# (Wi-Fi de casa o de la oficina) no puede conectarse al puerto.
+& $NssmExe set     $ServiceName AppParameters   "-m uvicorn backend.main:app --host 127.0.0.1 --port $Puerto"
+& $NssmExe set     $ServiceName AppDirectory    $AudixDir
 & $NssmExe set     $ServiceName AppEnvironmentExtra "AUDIX_DATA_DIR=$DataDir"
-& $NssmExe set     $ServiceName DisplayName     "Audix – Servidor de audiolibros"
+& $NssmExe set     $ServiceName DisplayName     "Audix - Servidor de audiolibros"
 & $NssmExe set     $ServiceName Description     "Backend FastAPI de Audix. Sirve la API y el frontend PWA."
 & $NssmExe set     $ServiceName Start           SERVICE_AUTO_START
 & $NssmExe set     $ServiceName ObjectName      LocalSystem
@@ -180,11 +211,11 @@ New-Item -ItemType Directory -Path $LogDir -Force | Out-Null
 & $NssmExe set $ServiceName AppStderr "$LogDir\audix-error.log"
 & $NssmExe set $ServiceName AppRotateFiles     1
 & $NssmExe set $ServiceName AppRotateOnline    1
-& $NssmExe set $ServiceName AppRotateBytes     5000000  # 5 MB máximo por archivo
+& $NssmExe set $ServiceName AppRotateBytes     5000000  # 5 MB maximo por archivo
 
 OK "Servicio configurado"
 
-# ── 6. Iniciar el servicio ───────────────────────────────────────────────────
+# -- 6. Iniciar el servicio ---------------------------------------------------
 INFO "Iniciando servicio..."
 & $NssmExe start $ServiceName
 Start-Sleep -Seconds 3
@@ -193,36 +224,38 @@ $Svc = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
 if ($Svc -and $Svc.Status -eq "Running") {
     OK "Servicio corriendo"
 } else {
-    WARN "El servicio no arrancó inmediatamente. Verificá el log en: $LogDir\audix-error.log"
+    WARN "El servicio no arranco inmediatamente. Verifica el log en: $LogDir\audix-error.log"
 }
 
-# ── 7. Test rápido ───────────────────────────────────────────────────────────
-INFO "Verificando que responde en http://localhost:$Puerto ..."
+# -- 7. Test rapido -----------------------------------------------------------
+INFO "Verificando que responde en http://127.0.0.1:$Puerto ..."
 Start-Sleep -Seconds 2
 try {
-    $resp = Invoke-WebRequest -Uri "http://localhost:$Puerto/libros" -UseBasicParsing -TimeoutSec 5
+    $resp = Invoke-WebRequest -Uri "http://127.0.0.1:$Puerto/health" -UseBasicParsing -TimeoutSec 5
     if ($resp.StatusCode -eq 200) {
         OK "Audix responde correctamente"
     }
 } catch {
-    WARN "No respondió todavía. Dale unos segundos y probá: Invoke-WebRequest http://localhost:$Puerto/libros"
+    WARN "No respondio todavia. Dale unos segundos y proba: Invoke-WebRequest http://127.0.0.1:$Puerto/health -UseBasicParsing"
 }
 
-# ── Resumen ──────────────────────────────────────────────────────────────────
+# -- Resumen ------------------------------------------------------------------
 Write-Host ""
-Write-Host "══════════════════════════════════════════" -ForegroundColor Green
+Write-Host "==========================================" -ForegroundColor Green
 Write-Host "   Listo. Audix ya es un servicio de Windows." -ForegroundColor Green
-Write-Host "══════════════════════════════════════════" -ForegroundColor Green
+Write-Host "==========================================" -ForegroundColor Green
 Write-Host ""
 Write-Host "  URL local:    http://localhost:$Puerto"
 Write-Host "  Datos:        $DataDir"
 Write-Host "  Logs:         $LogDir"
 Write-Host ""
-Write-Host "  Comandos útiles:"
+Write-Host "  Comandos utiles:"
 Write-Host "    Ver estado:  Get-Service Audix"
 Write-Host "    Reiniciar:   Restart-Service Audix"
 Write-Host "    Detener:     Stop-Service Audix"
 Write-Host "    Ver log:     Get-Content '$LogDir\audix.log' -Tail 50"
 Write-Host ""
-Write-Host "  Próximo paso: ejecutá 2-instalar-tailscale.ps1"
+Write-Host "  Proximos pasos:"
+Write-Host "    .\3-crear-clave.ps1          (obligatorio: sin clave no entra nadie)"
+Write-Host "    .\2-instalar-tailscale.ps1   (solo la primera vez)"
 Write-Host ""

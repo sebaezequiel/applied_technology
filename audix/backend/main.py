@@ -3,6 +3,9 @@
 Los libros se guardan en `data/`, donde el pipeline deja un `indice.json`,
 un `.txt` por capítulo y, si el EPUB trae una, la `portada.<ext>`.
 Para usar otra carpeta, definí AUDIX_DATA_DIR.
+
+Todo menos los archivos de la PWA, /health y /sesion exige haber iniciado
+sesión con la clave (ver `backend/seguridad.py`).
 """
 
 import json
@@ -13,15 +16,15 @@ import tempfile
 import threading
 import unicodedata
 from pathlib import Path
+from urllib.parse import urlsplit
 
-from fastapi import FastAPI, HTTPException, UploadFile
+from fastapi import FastAPI, HTTPException, Request, UploadFile
 from pydantic import BaseModel
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from backend.pipeline.epub_a_capitulos import procesar_epub
-from backend import trabajos
+from backend import seguridad, trabajos
 from backend.pipeline.pdf_a_capitulos import procesar_pdf
 
 RAIZ = Path(__file__).resolve().parent.parent
@@ -33,16 +36,158 @@ TIPOS_PDF = {"novela", "cuento", "poesia", "apuntes"}
 EXTENSIONES_PORTADA = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}
 ID_LIBRO = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 
-app = FastAPI(title="Audix", version="0.4.0")
+COOKIE_SESION = "audix_sesion"
+RUTAS_PUBLICAS = {"/health", "/sesion"}
+METODOS_QUE_CAMBIAN = {"POST", "PUT", "PATCH", "DELETE"}
+CUERPO_MAXIMO = TAMANO_MAXIMO + 1024 * 1024  # el archivo más los campos del formulario
 
-# La PWA corre en el navegador del celular o de la PC, con IP de red local.
-# Por eso se permiten orígenes de localhost y de redes privadas (192.168.x.x, 10.x.x.x, 172.16-31.x.x).
-app.add_middleware(
-    CORSMiddleware,
-    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)(:\d+)?",
-    allow_methods=["GET", "POST", "PUT", "DELETE"],
-    allow_headers=["*"],
-)
+# Los archivos de la PWA son lo único que se entrega sin sesión: hace falta
+# para poder mostrar la pantalla de acceso. Se listan al arrancar y se comparan
+# por igualdad exacta, así ninguna ruta rebuscada pasa por archivo estático.
+ARCHIVOS_PUBLICOS = {"/"} | {
+    "/" + archivo.relative_to(FRONTEND_DIR).as_posix()
+    for archivo in FRONTEND_DIR.rglob("*")
+    if archivo.is_file()
+}
+
+CABECERAS_DE_SEGURIDAD = {
+    # Solo se cargan scripts, estilos e imágenes propios; nada de otros sitios ni en línea.
+    "Content-Security-Policy": (
+        "default-src 'self'; script-src 'self'; style-src 'self'; "
+        "img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; "
+        "base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+    ),
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=()",
+    "Cross-Origin-Opener-Policy": "same-origin",
+    "Cross-Origin-Resource-Policy": "same-origin",
+}
+
+# Sin /docs ni /openapi.json: no hace falta publicar el mapa de la API.
+app = FastAPI(title="Audix", version="0.5.0", docs_url=None, redoc_url=None, openapi_url=None)
+
+freno = seguridad.Freno()
+
+
+def _es_https(request: Request) -> bool:
+    # Detrás de `tailscale serve` la conexión local es HTTP y el proxy avisa con esta cabecera.
+    return request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
+
+
+def _viene_de_otro_sitio(request: Request) -> bool:
+    """True si un pedido que modifica datos fue disparado desde otra página web."""
+    if request.headers.get("sec-fetch-site") == "cross-site":
+        return True
+    origen = request.headers.get("origin")
+    if origen is None:
+        return False  # no es un navegador (o es un pedido del mismo sitio sin Origin)
+    propios = {request.headers.get("host"), request.headers.get("x-forwarded-host")}
+    return urlsplit(origen).netloc not in propios
+
+
+def _rechazo(estado: int, detalle: str) -> JSONResponse:
+    return JSONResponse(status_code=estado, content={"detail": detalle})
+
+
+@app.middleware("http")
+async def proteger(request: Request, llamar):
+    respuesta = _revisar(request)
+    if respuesta is None:
+        respuesta = await llamar(request)
+    for nombre, valor in CABECERAS_DE_SEGURIDAD.items():
+        respuesta.headers.setdefault(nombre, valor)
+    if _es_https(request):
+        respuesta.headers.setdefault("Strict-Transport-Security", "max-age=31536000")
+    if request.url.path not in ARCHIVOS_PUBLICOS:
+        # Lo de la API (libros, sesión) no se guarda en cachés compartidas y
+        # el navegador lo revalida siempre antes de reusarlo.
+        respuesta.headers.setdefault("Cache-Control", "private, no-cache")
+    return respuesta
+
+
+def _revisar(request: Request):
+    """Devuelve la respuesta de rechazo, o None si el pedido puede seguir."""
+    ruta = request.url.path
+    metodo = request.method
+
+    if metodo in METODOS_QUE_CAMBIAN:
+        if _viene_de_otro_sitio(request):
+            return _rechazo(403, "Pedido rechazado: viene de otro sitio")
+        largo = request.headers.get("content-length", "")
+        if largo.isdigit() and int(largo) > CUERPO_MAXIMO:
+            return _rechazo(413, "El archivo supera los 50 MB")
+
+    if ruta in RUTAS_PUBLICAS:
+        return None
+    if metodo in {"GET", "HEAD"} and ruta in ARCHIVOS_PUBLICOS:
+        return None
+    if seguridad.sesion_valida(DATA_DIR, request.cookies.get(COOKIE_SESION)):
+        return None
+    return _rechazo(401, "Hace falta iniciar sesión")
+
+
+def _dentro(carpeta: Path, nombre: str) -> Path:
+    """Arma una ruta dentro de la carpeta del libro; rechaza nombres que intenten salir."""
+    ruta = (carpeta / nombre).resolve()
+    if carpeta.resolve() not in ruta.parents:
+        raise HTTPException(status_code=404, detail="Archivo no encontrado")
+    return ruta
+
+
+# ---------------------------------------------------------------------------
+# Sesión
+# ---------------------------------------------------------------------------
+
+class Acceso(BaseModel):
+    clave: str
+
+
+@app.get("/sesion")
+def estado_sesion(request: Request) -> dict:
+    return {
+        "configurada": seguridad.hay_clave(DATA_DIR),
+        "activa": seguridad.sesion_valida(DATA_DIR, request.cookies.get(COOKIE_SESION)),
+    }
+
+
+@app.post("/sesion", status_code=204)
+def iniciar_sesion(acceso: Acceso, request: Request) -> Response:
+    if not seguridad.hay_clave(DATA_DIR):
+        raise HTTPException(status_code=503, detail="Todavía no se creó la clave en la PC")
+
+    espera = freno.segundos_de_espera()
+    if espera:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Demasiados intentos. Probá de nuevo en {espera} segundos.",
+            headers={"Retry-After": str(espera)},
+        )
+    if not seguridad.clave_correcta(DATA_DIR, acceso.clave):
+        freno.anotar_fallo()
+        raise HTTPException(status_code=401, detail="Clave incorrecta")
+    freno.anotar_acierto()
+
+    respuesta = Response(status_code=204)
+    respuesta.set_cookie(
+        COOKIE_SESION,
+        seguridad.abrir_sesion(DATA_DIR),
+        max_age=seguridad.DURACION_SESION,
+        httponly=True,  # el JavaScript de la página no puede leerla
+        secure=_es_https(request),  # por HTTPS no viaja nunca en claro
+        samesite="strict",  # otros sitios no pueden usarla
+        path="/",
+    )
+    return respuesta
+
+
+@app.delete("/sesion", status_code=204)
+def terminar_sesion(request: Request) -> Response:
+    seguridad.cerrar_sesion(DATA_DIR, request.cookies.get(COOKIE_SESION))
+    respuesta = Response(status_code=204)
+    respuesta.delete_cookie(COOKIE_SESION, path="/")
+    return respuesta
 
 
 def _carpeta_libro(libro_id: str) -> Path:
@@ -271,12 +416,21 @@ def borrar_libro(libro_id: str) -> Response:
     return Response(status_code=204)
 
 
+def _es_imagen(contenido: bytes) -> bool:
+    """Mira los primeros bytes: la extensión sola no prueba que sea una imagen."""
+    return (
+        contenido.startswith(b"\xff\xd8")
+        or contenido.startswith(b"\x89PNG\r\n\x1a\n")
+        or (contenido[:4] == b"RIFF" and contenido[8:12] == b"WEBP")
+    )
+
+
 @app.get("/libros/{libro_id}/portada")
 def ver_portada(libro_id: str) -> FileResponse:
     datos = _leer_indice(libro_id)
     if not datos.get("portada"):
         raise HTTPException(status_code=404, detail="Este libro no tiene portada")
-    return FileResponse(_carpeta_libro(libro_id) / datos["portada"])
+    return FileResponse(_dentro(_carpeta_libro(libro_id), datos["portada"]))
 
 
 @app.put("/libros/{libro_id}/portada")
@@ -289,6 +443,8 @@ def cambiar_portada(libro_id: str, archivo: UploadFile) -> dict:
     contenido = archivo.file.read(TAMANO_PORTADA + 1)
     if len(contenido) > TAMANO_PORTADA:
         raise HTTPException(status_code=413, detail="La portada supera los 5 MB")
+    if not _es_imagen(contenido):
+        raise HTTPException(status_code=400, detail="El archivo no es una imagen JPG, PNG o WebP")
 
     for anterior in carpeta.glob("portada.*"):
         anterior.unlink()
@@ -310,7 +466,7 @@ def texto_capitulo(libro_id: str, numero: int) -> dict:
     if capitulo is None:
         raise HTTPException(status_code=404, detail="Capítulo no encontrado")
 
-    archivo = _carpeta_libro(libro_id) / capitulo["archivo"]
+    archivo = _dentro(_carpeta_libro(libro_id), capitulo["archivo"])
     return {**capitulo, "texto": archivo.read_text(encoding="utf-8")}
 
 

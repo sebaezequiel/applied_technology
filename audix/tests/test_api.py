@@ -10,7 +10,22 @@ from fastapi.testclient import TestClient
 RAIZ = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RAIZ))
 
-from backend import main  # noqa: E402
+from backend import main, seguridad  # noqa: E402
+
+CLAVE = "clave-de-prueba-123"
+
+
+def preparar_acceso(carpeta, monkeypatch):
+    """Crea la clave en la carpeta de datos de prueba (con scrypt liviano, para que sea rápido)."""
+    monkeypatch.setattr(seguridad, "SCRYPT_N", 2 ** 4)
+    main.freno.reiniciar()
+    seguridad.guardar_clave(carpeta, CLAVE)
+
+
+def entrar(cliente):
+    respuesta = cliente.post("/sesion", json={"clave": CLAVE})
+    assert respuesta.status_code == 204
+    return cliente
 
 
 def crear_epub_bytes(titulo: str, tmp_path: Path) -> bytes:
@@ -47,7 +62,8 @@ def cliente(tmp_path, monkeypatch):
         encoding="utf-8",
     )
     monkeypatch.setattr(main, "DATA_DIR", tmp_path)
-    return TestClient(main.app)
+    preparar_acceso(tmp_path, monkeypatch)
+    return entrar(TestClient(main.app))
 
 
 def test_health(cliente):
