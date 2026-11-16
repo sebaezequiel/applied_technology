@@ -74,13 +74,41 @@ OK "NSSM y servicio encontrados"
 
 # -- 3. Obtener la ruta de Python que usa el servicio --------------------------
 INFO "Leyendo configuracion del servicio..."
-$PythonExe = (& $NssmExe get $ServiceName Application 2>&1) | Select-Object -Last 1
-$PythonExe = $PythonExe.Trim()
+
+# nssm get puede devolver varias lineas; buscar la que sea una ruta a python.exe
+$NssmOutput = (& $NssmExe get $ServiceName Application 2>&1)
+$PythonExe  = ""
+foreach ($Linea in $NssmOutput) {
+    $L = "$Linea".Trim()
+    if ($L -like "*python*.exe") {
+        $PythonExe = $L
+        break
+    }
+}
+
+# Si NSSM no devuelve nada util, buscar el venv en las ubicaciones habituales
+if ($PythonExe -eq "") {
+    WARN "No pude leer la ruta de Python desde NSSM. Buscando en el proyecto..."
+    $VenvCandidatos = @(
+        "$ProyectoDir\.venv\Scripts\python.exe",
+        "$ProyectoDir\venv\Scripts\python.exe",
+        "$ProyectoDir\audix\.venv\Scripts\python.exe",
+        "$ProyectoDir\audix\venv\Scripts\python.exe"
+    )
+    foreach ($v in $VenvCandidatos) {
+        if (Test-Path $v) { $PythonExe = $v; break }
+    }
+}
+
+if ($PythonExe -eq "") {
+    WARN "No se detecto la ruta de Python. Los permisos del venv se aplicaran manualmente si hace falta."
+}
+
 INFO "Python del servicio: $PythonExe"
 
 # Calcular la raiz del venv (dos niveles arriba de python.exe: venv\Scripts\python.exe)
-$VenvScripts = Split-Path -Parent $PythonExe
-$VenvRaiz    = Split-Path -Parent $VenvScripts
+$VenvScripts = if ($PythonExe -ne "") { Split-Path -Parent $PythonExe } else { "" }
+$VenvRaiz    = if ($VenvScripts -ne "") { Split-Path -Parent $VenvScripts } else { "" }
 
 # -- 4. Generar una contrasena fuerte al azar ----------------------------------
 INFO "Generando contrasena..."
