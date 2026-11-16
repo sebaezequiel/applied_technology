@@ -76,6 +76,7 @@
       <button type="button" class="boton-secundario" id="btn-importar">
         <svg class="icono" aria-hidden="true"><use href="#i-mas"/></svg> Importar libro
       </button>
+      <button type="button" class="boton-texto" id="btn-salir">Cerrar sesión</button>
     </div>
   </main>
 
@@ -321,15 +322,35 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
+  <!-- Acceso: tapa toda la app hasta que se ingresa la clave -->
+  <div class="acceso" id="acceso" hidden role="dialog" aria-modal="true" aria-labelledby="acceso-titulo">
+    <div class="acceso-caja">
+      <h1 class="marca" id="acceso-titulo">Audix</h1>
+
+      <form class="acceso-form" id="form-acceso" novalidate>
+        <p class="acceso-texto">Ingresá tu clave para entrar.</p>
+        <input type="text" name="usuario" value="audix" autocomplete="username" hidden>
+        <label class="campo">
+          <span class="campo-etiqueta">Clave</span>
+          <input type="password" class="campo-texto" id="input-clave" name="clave"
+                 autocomplete="current-password" maxlength="200" required>
+        </label>
+        <p class="acceso-error" id="acceso-error" role="alert" hidden></p>
+        <button type="submit" class="boton-principal" id="btn-entrar">Entrar</button>
+      </form>
+
+      <div class="acceso-form" id="acceso-sin-clave" hidden>
+        <p class="acceso-texto">Todavía no se creó la clave de acceso.</p>
+        <p class="acceso-texto">En la PC, ejecutá <code>3-crear-clave.ps1</code> y después recargá esta página.</p>
+      </div>
+    </div>
+  </div>
+
   <script src="config.js"></script>
   <script src="racha.js"></script>
   <script src="mascota.js"></script>
+  <script src="sesion.js"></script>
   <script src="lector.js"></script>
   <script src="app.js"></script>
-  <script>
-    if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("sw.js");
-    }
-  </script>
 </body>
 </html>

@@ -110,6 +110,33 @@ if (-not (Test-Path $DataDir)) {
     INFO "Carpeta de datos: $DataDir"
 }
 
+# Si la carpeta todavia no tiene libros, se copian los de audix\data
+# (donde los deja iniciar-audix.bat). Los originales no se tocan.
+$DatosViejos = Join-Path $AudixDir "data"
+$LibrosNuevos = @(Get-ChildItem -Path $DataDir -Directory -ErrorAction SilentlyContinue |
+                  Where-Object { Test-Path (Join-Path $_.FullName "indice.json") })
+if ($LibrosNuevos.Count -eq 0 -and (Test-Path $DatosViejos) -and
+    ((Resolve-Path $DatosViejos).Path -ne (Resolve-Path $DataDir).Path)) {
+    $LibrosViejos = @(Get-ChildItem -Path $DatosViejos -Directory |
+                      Where-Object { Test-Path (Join-Path $_.FullName "indice.json") })
+    foreach ($Libro in $LibrosViejos) {
+        Copy-Item -Path $Libro.FullName -Destination (Join-Path $DataDir $Libro.Name) -Recurse
+    }
+    if ($LibrosViejos.Count -gt 0) {
+        OK "Se copiaron $($LibrosViejos.Count) libros desde $DatosViejos"
+    }
+}
+
+# Solo el sistema y los administradores pueden leer la carpeta de datos
+# (libros, registros y el archivo de la clave). Se usan identificadores fijos
+# porque los nombres de los grupos cambian segun el idioma de Windows.
+& icacls.exe $DataDir /inheritance:r /grant:r "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-544:(OI)(CI)F" | Out-Null
+if ($LASTEXITCODE -eq 0) {
+    OK "Carpeta de datos restringida a administradores"
+} else {
+    WARN "No se pudieron restringir los permisos de $DataDir"
+}
+
 # -- 4. Descargar NSSM ---------------------------------------------------------
 INFO "Verificando NSSM..."
 $NssmDir  = "$env:ProgramFiles\nssm"
@@ -153,19 +180,23 @@ if (-not (Test-Path $NssmExe)) {
 $ServiceName = "Audix"
 INFO "Configurando el servicio '$ServiceName'..."
 
-# Si ya existe, pararlo y eliminarlo para reconfigurar
+# Si ya existe se reconfigura en el lugar. No se borra y se vuelve a crear:
+# Windows tarda en borrar un servicio y la creacion siguiente falla.
 $Existing = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
 if ($Existing) {
-    WARN "El servicio ya existe. Reconfigurando..."
-    if ($Existing.Status -eq "Running") {
-        & $NssmExe stop $ServiceName confirm | Out-Null
+    INFO "El servicio ya existe. Actualizando su configuracion..."
+    if ($Existing.Status -ne "Stopped") {
+        & $NssmExe stop $ServiceName | Out-Null
     }
-    & $NssmExe remove $ServiceName confirm | Out-Null
+    & $NssmExe set $ServiceName Application $PythonExe
+} else {
+    & $NssmExe install $ServiceName $PythonExe
 }
 
-# Instalar
-& $NssmExe install $ServiceName $PythonExe
-& $NssmExe set     $ServiceName AppParameters   "-m uvicorn backend.main:app --host 0.0.0.0 --port $Puerto"
+# --host 127.0.0.1: Audix solo atiende conexiones de esta misma PC.
+# Desde afuera se entra unicamente por Tailscale (HTTPS); la red local
+# (Wi-Fi de casa o de la oficina) no puede conectarse al puerto.
+& $NssmExe set     $ServiceName AppParameters   "-m uvicorn backend.main:app --host 127.0.0.1 --port $Puerto"
 & $NssmExe set     $ServiceName AppDirectory    $AudixDir
 & $NssmExe set     $ServiceName AppEnvironmentExtra "AUDIX_DATA_DIR=$DataDir"
 & $NssmExe set     $ServiceName DisplayName     "Audix - Servidor de audiolibros"
@@ -197,15 +228,15 @@ if ($Svc -and $Svc.Status -eq "Running") {
 }
 
 # -- 7. Test rapido -----------------------------------------------------------
-INFO "Verificando que responde en http://localhost:$Puerto ..."
+INFO "Verificando que responde en http://127.0.0.1:$Puerto ..."
 Start-Sleep -Seconds 2
 try {
-    $resp = Invoke-WebRequest -Uri "http://localhost:$Puerto/libros" -UseBasicParsing -TimeoutSec 5
+    $resp = Invoke-WebRequest -Uri "http://127.0.0.1:$Puerto/health" -UseBasicParsing -TimeoutSec 5
     if ($resp.StatusCode -eq 200) {
         OK "Audix responde correctamente"
     }
 } catch {
-    WARN "No respondio todavia. Dale unos segundos y proba: Invoke-WebRequest http://localhost:$Puerto/libros"
+    WARN "No respondio todavia. Dale unos segundos y proba: Invoke-WebRequest http://127.0.0.1:$Puerto/health -UseBasicParsing"
 }
 
 # -- Resumen ------------------------------------------------------------------
@@ -224,5 +255,7 @@ Write-Host "    Reiniciar:   Restart-Service Audix"
 Write-Host "    Detener:     Stop-Service Audix"
 Write-Host "    Ver log:     Get-Content '$LogDir\audix.log' -Tail 50"
 Write-Host ""
-Write-Host "  Proximo paso: ejecuta 2-instalar-tailscale.ps1"
+Write-Host "  Proximos pasos:"
+Write-Host "    .\3-crear-clave.ps1          (obligatorio: sin clave no entra nadie)"
+Write-Host "    .\2-instalar-tailscale.ps1   (solo la primera vez)"
 Write-Host ""

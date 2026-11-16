@@ -159,12 +159,25 @@ Read-Host "  Enter para continuar" | Out-Null
 # -- 5. Configurar tailscale serve --------------------------------------------
 INFO "Configurando 'tailscale serve' para exponer Audix con HTTPS..."
 
-# Limpiar configuracion previa si existe
-& $TailscaleExe serve reset 2>&1 | Out-Null
+# Tailscale puede tardar unos segundos en quedar listo despues del login.
+$Listo = $false
+for ($i = 0; $i -lt 30 -and -not $Listo; $i++) {
+    $ErrorActionPreference = "Continue"
+    $Texto = & $TailscaleExe status --json 2>$null | Out-String
+    $ErrorActionPreference = "Stop"
+    try { $Listo = ((ConvertFrom-Json $Texto).BackendState -eq "Running") } catch { $Listo = $false }
+    if (-not $Listo) { Start-Sleep -Seconds 2 }
+}
+if (-not $Listo) {
+    ERR "Tailscale todavia no esta listo. Espera un minuto y volve a ejecutar este script."
+}
 
-# Redirigir HTTPS -> http://localhost:PuertoAudix
+# Redirigir HTTPS -> http://127.0.0.1:PuertoAudix (reemplaza la configuracion anterior)
 # --bg: persiste como servicio en segundo plano, sobrevive reinicios
-& $TailscaleExe serve --bg "http://localhost:$PuertoAudix"
+$ErrorActionPreference = "Continue"
+& $TailscaleExe serve reset 2>$null | Out-Null
+& $TailscaleExe serve --bg "http://127.0.0.1:$PuertoAudix"
+$ErrorActionPreference = "Stop"
 
 if ($LASTEXITCODE -ne 0) {
     ERR "Fallo 'tailscale serve'. Verifica que HTTPS esta habilitado en el panel de Tailscale (paso anterior)."

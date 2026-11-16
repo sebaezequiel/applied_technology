@@ -1237,6 +1237,49 @@ body.con-mini .pantalla {
   accent-color: var(--clay);
 }
 
+/* ---------- Acceso con clave ---------- */
+
+.acceso {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: var(--fondo);
+}
+
+.acceso-caja {
+  width: 100%;
+  max-width: 360px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.acceso-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.acceso-texto {
+  font-size: 15px;
+  color: var(--gris);
+}
+
+.acceso-texto code {
+  font-size: 14px;
+  color: var(--tinta);
+}
+
+.acceso-error {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--rojo);
+}
+
 /* ---------- Aviso breve ---------- */
 
 .toast {
