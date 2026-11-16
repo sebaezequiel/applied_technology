@@ -74,10 +74,13 @@ function Set-CuentaDelServicio {
     return [int]$r.ReturnValue   # 0 = OK
 }
 
-function Set-DenegarInicioInteractivo {
-    # Impide iniciar sesion en la PC (local o por escritorio remoto) con la cuenta de servicio.
-    # Edita los derechos de usuario con secedit. Devuelve $true si quedo aplicado.
-    param([string]$Sid)
+function Set-DerechosDeUsuario {
+    # Agrega la cuenta a una lista de derechos de usuario (secedit).
+    # Devuelve $true si quedo aplicado.
+    param(
+        [string]$Sid,
+        [string[]]$Derechos
+    )
     $tmp = Join-Path $env:TEMP ("audix-secedit-" + [guid]::NewGuid().ToString("N"))
     New-Item -ItemType Directory -Path $tmp | Out-Null
     $inf = Join-Path $tmp "cfg.inf"
@@ -89,7 +92,7 @@ function Set-DenegarInicioInteractivo {
         $lineas = New-Object System.Collections.ArrayList
         $lineas.AddRange(@(Get-Content -Path $inf -Encoding Unicode))
 
-        foreach ($derecho in @("SeDenyInteractiveLogonRight", "SeDenyRemoteInteractiveLogonRight")) {
+        foreach ($derecho in $Derechos) {
             $idx = -1
             for ($i = 0; $i -lt $lineas.Count; $i++) {
                 if ($lineas[$i] -match "^\s*$derecho\s*=") { $idx = $i; break }
@@ -262,12 +265,21 @@ if ($EsAdmin) {
     OK "No es administrador"
 }
 
-# -- 5b. Bloquear inicio de sesion interactivo ---------------------------------
+# -- 5b. Derechos de la cuenta ------------------------------------------------
+# Sin "Iniciar sesion como servicio" el SCM rechaza la cuenta (error 1069).
+# Es obligatorio: se aplica ANTES de cambiar la cuenta del servicio.
+INFO "Dando derecho 'Iniciar sesion como servicio'..."
+if (-not (Set-DerechosDeUsuario -Sid $uSid -Derechos @("SeServiceLogonRight"))) {
+    ERR "No pude dar el derecho 'Iniciar sesion como servicio'. El servicio no podria arrancar."
+}
+OK "Derecho 'Iniciar sesion como servicio' otorgado"
+
+# Bloquear inicio de sesion interactivo y por escritorio remoto (no critico)
 INFO "Bloqueando inicio de sesion local y por escritorio remoto..."
-if (Set-DenegarInicioInteractivo -Sid $uSid) {
+if (Set-DerechosDeUsuario -Sid $uSid -Derechos @("SeDenyInteractiveLogonRight", "SeDenyRemoteInteractiveLogonRight")) {
     OK "La cuenta no puede iniciar sesion en esta PC"
 } else {
-    WARN "No pude aplicar el bloqueo de inicio de sesion. No es critico: la contrasena es aleatoria."
+    WARN "No pude confirmar el bloqueo de inicio de sesion. No es critico: la contrasena es aleatoria."
 }
 
 # -- 6. Permisos de lectura sobre el codigo ------------------------------------
