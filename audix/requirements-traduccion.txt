@@ -1,4 +1,0 @@
-# Traducción de libros (opcional). Solo hace falta si vas a usar "Traducir" en el menú del libro.
-# Instalar con:  .venv\Scripts\python -m pip install -r requirements-traduccion.txt
-# Después, una sola vez (necesita internet):  .venv\Scripts\python -m backend.pipeline.traductor --instalar
-argostranslate>=1.9.0

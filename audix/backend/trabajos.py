@@ -13,14 +13,11 @@ _lock = threading.Lock()
 _trabajos: dict[str, dict] = {}
 
 
-def crear(nombre: str, tipo: str, clase: str = "importacion", libro_origen: str | None = None) -> dict:
+def crear(nombre: str, tipo: str) -> dict:
     trabajo = {
         "id": uuid.uuid4().hex[:12],
         "nombre": nombre,
         "tipo": tipo,
-        "clase": clase,        # importacion | traduccion
-        "libro_origen": libro_origen,
-        "cancelar": False,     # True si se pidió cancelar (solo traducciones)
         "estado": "en_curso",  # en_curso | listo | error
         "progreso": 0,         # 0 a 100
         "error": None,
@@ -47,14 +44,6 @@ def obtener(trabajo_id: str) -> dict | None:
 def listar() -> list[dict]:
     with _lock:
         return sorted((dict(t) for t in _trabajos.values()), key=lambda t: t["creado"])
-
-
-def pedir_cancelacion(trabajo_id: str) -> bool:
-    with _lock:
-        if trabajo_id not in _trabajos:
-            return False
-        _trabajos[trabajo_id]["cancelar"] = True
-        return True
 
 
 def quitar(trabajo_id: str) -> bool:
