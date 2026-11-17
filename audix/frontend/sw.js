@@ -5,7 +5,7 @@
 // guarda una copia; la copia solo se usa si la PC no responde. Así no hace falta
 // borrar datos del sitio para ver una actualización.
 
-const CACHE = "audix-v14";
+const CACHE = "audix-v13";
 const ESTATICOS = [
   "./",
   "index.html",
