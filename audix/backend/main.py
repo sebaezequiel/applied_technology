@@ -1,4 +1,4 @@
-"""API de Audix: biblioteca, lectura de capítulos, importación, portadas y borrado.
+"""API de Audix: biblioteca, lectura de capítulos, importación, traducción, portadas y borrado.
 
 Los libros se guardan en `data/`, donde el pipeline deja un `indice.json`,
 un `.txt` por capítulo y, si el EPUB trae una, la `portada.<ext>`.
@@ -15,6 +15,7 @@ import shutil
 import tempfile
 import threading
 import unicodedata
+from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -25,6 +26,7 @@ from fastapi.staticfiles import StaticFiles
 
 from backend.pipeline.epub_a_capitulos import procesar_epub
 from backend import seguridad, trabajos
+from backend.pipeline import traductor
 from backend.pipeline.pdf_a_capitulos import procesar_pdf
 
 RAIZ = Path(__file__).resolve().parent.parent
@@ -65,8 +67,18 @@ CABECERAS_DE_SEGURIDAD = {
     "Cross-Origin-Resource-Policy": "same-origin",
 }
 
+@asynccontextmanager
+async def _ciclo_de_vida(_app: FastAPI):
+    # Si el servidor se reinició a mitad de una traducción, la retoma donde quedó.
+    reanudar_traducciones()
+    yield
+
+
 # Sin /docs ni /openapi.json: no hace falta publicar el mapa de la API.
-app = FastAPI(title="Audix", version="0.5.0", docs_url=None, redoc_url=None, openapi_url=None)
+app = FastAPI(
+    title="Audix", version="0.6.0", docs_url=None, redoc_url=None, openapi_url=None,
+    lifespan=_ciclo_de_vida,
+)
 
 freno = seguridad.Freno()
 
@@ -223,6 +235,21 @@ def _carpeta_libre(nombre_base: str) -> Path:
         candidato = DATA_DIR / f"{nombre_base}-{contador}"
         contador += 1
     return candidato
+
+
+def _idioma_libro(carpeta: Path, datos: dict) -> str | None:
+    """'es' o 'en': el guardado en el índice, o el detectado leyendo el comienzo del libro."""
+    if datos.get("idioma") in traductor.IDIOMAS:
+        return datos["idioma"]
+    for capitulo in datos.get("capitulos", [])[:3]:
+        try:
+            muestra = (carpeta / capitulo["archivo"]).read_text(encoding="utf-8")[:6000]
+        except (OSError, KeyError):
+            continue
+        idioma = traductor.detectar_idioma(muestra)
+        if idioma:
+            return idioma
+    return None
 
 
 def _url_portada(libro_id: str, datos: dict):
@@ -388,7 +415,12 @@ def importar_libro(archivo: UploadFile) -> dict:
 @app.get("/libros/{libro_id}")
 def detalle_libro(libro_id: str) -> dict:
     datos = _leer_indice(libro_id)
-    return {"id": libro_id, **datos, "portada": _url_portada(libro_id, datos)}
+    return {
+        "id": libro_id,
+        **datos,
+        "portada": _url_portada(libro_id, datos),
+        "idioma": _idioma_libro(_carpeta_libro(libro_id), datos),
+    }
 
 
 class CambioTitulo(BaseModel):
@@ -408,6 +440,137 @@ def renombrar_libro(libro_id: str, cambio: CambioTitulo) -> dict:
     datos["titulo"] = titulo
     _guardar_indice(carpeta, datos)
     return {"id": libro_id, **datos, "portada": _url_portada(libro_id, datos)}
+
+
+# ---------------------------------------------------------------------------
+# Traducción en segundo plano
+# ---------------------------------------------------------------------------
+
+PREFIJO_TRADUCCION = ".traduciendo-"  # carpeta de trabajo; el punto la deja fuera de la biblioteca
+_una_traduccion = threading.Lock()  # el motor usa mucha CPU: se traduce un libro a la vez
+
+
+class PedidoTraduccion(BaseModel):
+    destino: str
+
+
+def _carpeta_de_traduccion(libro_id: str, destino: str) -> Path:
+    return DATA_DIR / f"{PREFIJO_TRADUCCION}{libro_id}-{destino}"
+
+
+def _traduccion_en_curso(libro_id: str, destino: str) -> bool:
+    return any(
+        t["clase"] == "traduccion" and t["estado"] == "en_curso"
+        and t["libro_origen"] == libro_id and t["tipo"] == destino
+        for t in trabajos.listar()
+    )
+
+
+def _traducir_en_segundo_plano(trabajo_id, libro_id, origen, destino, traducir) -> None:
+    """Corre en un hilo aparte: traduce, y al terminar publica el libro nuevo."""
+    carpeta_trabajo = _carpeta_de_traduccion(libro_id, destino)
+
+    def cancelado() -> bool:
+        trabajo = trabajos.obtener(trabajo_id)
+        return bool(trabajo and trabajo["cancelar"])
+
+    try:
+        # Espera su turno si ya hay otra traducción corriendo (y se puede cancelar mientras espera).
+        while not _una_traduccion.acquire(timeout=1):
+            if cancelado():
+                raise traductor.TraduccionCancelada()
+        try:
+            indice = traductor.traducir_libro(
+                DATA_DIR / libro_id, carpeta_trabajo, origen, destino, traducir,
+                progreso=lambda porcentaje: trabajos.actualizar(trabajo_id, progreso=porcentaje),
+                cancelado=cancelado,
+                libro_origen_id=libro_id,
+            )
+            # Primero se mueve la carpeta y recién después se publica el índice:
+            # así la biblioteca nunca ve un libro a medias.
+            final = _carpeta_libre(_slug(indice["titulo"]))
+            carpeta_trabajo.rename(final)
+            (final / "estado.json").unlink(missing_ok=True)
+            os.replace(final / "indice.pendiente.json", final / "indice.json")
+        finally:
+            _una_traduccion.release()
+        trabajos.actualizar(trabajo_id, estado="listo", progreso=100, libro_id=final.name)
+    except traductor.TraduccionCancelada:
+        shutil.rmtree(carpeta_trabajo, ignore_errors=True)
+        trabajos.quitar(trabajo_id)
+    except Exception as error:
+        # La carpeta de trabajo se conserva: al reintentar o reiniciar se retoma lo ya traducido.
+        trabajos.actualizar(trabajo_id, estado="error", error=str(error) or "Error desconocido")
+
+
+def _iniciar_traduccion(libro_id: str, titulo: str, origen: str, destino: str, traducir) -> dict:
+    trabajo = trabajos.crear(
+        nombre=f"Traduciendo: {titulo}", tipo=destino, clase="traduccion", libro_origen=libro_id
+    )
+    threading.Thread(
+        target=_traducir_en_segundo_plano,
+        args=(trabajo["id"], libro_id, origen, destino, traducir),
+        daemon=True,
+    ).start()
+    return trabajo
+
+
+def reanudar_traducciones() -> None:
+    """Retoma al arrancar las traducciones que quedaron a medias."""
+    if not DATA_DIR.exists():
+        return
+    for carpeta in sorted(DATA_DIR.glob(f"{PREFIJO_TRADUCCION}*")):
+        try:
+            estado = json.loads((carpeta / "estado.json").read_text(encoding="utf-8"))
+            libro_id, origen, destino = estado["origen"], estado["de"], estado["a"]
+            titulo = json.loads((DATA_DIR / libro_id / "indice.json").read_text(encoding="utf-8"))["titulo"]
+        except (OSError, KeyError, ValueError):
+            shutil.rmtree(carpeta, ignore_errors=True)  # sin estado o sin libro original: no hay cómo seguir
+            continue
+        try:
+            traducir = traductor.obtener_traductor(origen, destino)
+        except traductor.TraduccionNoDisponible:
+            continue  # queda en disco; se retoma cuando el motor esté instalado
+        _iniciar_traduccion(libro_id, titulo, origen, destino, traducir)
+
+
+@app.post("/libros/{libro_id}/traducir", status_code=202)
+def traducir_libro(libro_id: str, pedido: PedidoTraduccion) -> dict:
+    """
+    Crea un libro nuevo con la traducción de este (el original no se toca).
+    Responde enseguida con el trabajo; el progreso se consulta en GET /trabajos/{id}.
+    """
+    carpeta = _carpeta_libro(libro_id)
+    datos = _leer_indice(libro_id)
+    destino = pedido.destino
+    if destino not in traductor.IDIOMAS:
+        raise HTTPException(status_code=400, detail="Idioma de destino inválido. Usá: es o en")
+    origen = _idioma_libro(carpeta, datos)
+    if origen is None:
+        raise HTTPException(status_code=422, detail="No pude detectar el idioma de este libro")
+    if origen == destino:
+        raise HTTPException(
+            status_code=400, detail=f"Este libro ya está en {traductor.IDIOMAS[destino]}"
+        )
+    if _traduccion_en_curso(libro_id, destino):
+        raise HTTPException(status_code=409, detail="Este libro ya se está traduciendo")
+    try:
+        traducir = traductor.obtener_traductor(origen, destino)
+    except traductor.TraduccionNoDisponible as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    return _iniciar_traduccion(libro_id, datos.get("titulo", libro_id), origen, destino, traducir)
+
+
+@app.post("/trabajos/{trabajo_id}/cancelar", status_code=202)
+def cancelar_trabajo(trabajo_id: str) -> dict:
+    """Cancela una traducción en curso y descarta lo traducido hasta ahora."""
+    trabajo = trabajos.obtener(trabajo_id)
+    if trabajo is None:
+        raise HTTPException(status_code=404, detail="Trabajo no encontrado")
+    if trabajo["clase"] != "traduccion" or trabajo["estado"] != "en_curso":
+        raise HTTPException(status_code=409, detail="Solo se pueden cancelar traducciones en curso")
+    trabajos.pedir_cancelacion(trabajo_id)
+    return trabajos.obtener(trabajo_id) or trabajo
 
 
 @app.delete("/libros/{libro_id}", status_code=204)

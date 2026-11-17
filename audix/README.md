@@ -46,6 +46,34 @@ uvicorn backend.main:app --host 127.0.0.1 --port 8000
 
 Audix escucha solo en la propia PC (`127.0.0.1`). Para usarla desde el celular, dentro o fuera de casa, con HTTPS y como app instalada, seguí [deploy/windows/despliegue.md](deploy/windows/despliegue.md).
 
+## Traducción (opcional)
+
+Desde el menú ⋯ de un libro: **Traducir al español / al inglés**. Crea un libro nuevo, "Título (ES)" o "Título (EN)", y el original no se toca.
+
+- Es automática y literal (frase por frase): sirve para entender o probar, no reemplaza una traducción profesional.
+- Corre en la PC con Argos Translate: sin internet para traducir, sin costo y sin límite de caracteres.
+- Va en segundo plano y puede tardar horas. El avance se ve en "En proceso" de la biblioteca, donde también se puede cancelar.
+- Cada capítulo se guarda al terminar. Si el servidor se reinicia, retoma donde quedó.
+- Se traduce un libro a la vez.
+- Al leer, la voz se elige sola según el idioma del libro.
+
+Instalación (una vez, PowerShell como Administrador, con internet):
+
+```powershell
+cd audix\deploy\windows
+.\5-instalar-traduccion.ps1
+```
+
+Probar la calidad sin tocar ningún libro:
+
+```powershell
+cd audix
+$env:AUDIX_DATA_DIR = "C:\audix-data"
+.venv\Scripts\python -m backend.pipeline.traductor --probar en es "The old man walked slowly along the road."
+```
+
+Si no te convence, `.\5-instalar-traduccion.ps1 -Quitar` la desinstala y el resto de Audix sigue igual.
+
 ## Seguridad
 
 - Todo pide iniciar sesión con la clave, salvo los archivos de la PWA y `/health`.
