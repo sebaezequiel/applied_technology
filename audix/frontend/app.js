@@ -653,6 +653,83 @@ async function borrarLibroActual() {
   toast("Libro borrado.");
 }
 
+// ---------- Traducción ----------
+
+const IDIOMAS = { es: "español", en: "inglés" };
+
+// El destino es siempre el otro idioma. Sin idioma detectado, la opción no se muestra.
+function destinoDeTraduccion(libro) {
+  if (libro && libro.idioma === "en") return "es";
+  if (libro && libro.idioma === "es") return "en";
+  return null;
+}
+
+function pintarOpcionTraducir() {
+  const destino = destinoDeTraduccion(libroActual);
+  $("btn-traducir-libro").hidden = !destino;
+  if (destino) $("texto-traducir-libro").textContent = `Traducir al ${IDIOMAS[destino]}`;
+}
+
+function abrirTraduccion() {
+  const destino = destinoDeTraduccion(libroActual);
+  if (!destino) return;
+  $("traducir-titulo").textContent = `Traducir al ${IDIOMAS[destino]}`;
+  $("traducir-desc").textContent =
+    `Se crea un libro nuevo, "${libroActual.titulo} (${destino.toUpperCase()})", y el original queda igual. ` +
+    "Es una traducción automática y literal: puede sonar rara o tener errores. " +
+    "Corre en segundo plano en la PC y puede tardar horas; el avance se ve en Mi biblioteca.";
+  $("aviso-traducir").textContent = "";
+  abrirHoja("hoja-traducir");
+}
+
+async function traducirLibroActual() {
+  const destino = destinoDeTraduccion(libroActual);
+  const aviso = $("aviso-traducir");
+  const boton = $("btn-confirmar-traducir");
+  if (!destino) return;
+  boton.disabled = true;
+  try {
+    const respuesta = await Sesion.pedir(`${API}/libros/${libroActual.id}/traducir`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ destino }),
+    });
+    if (!respuesta.ok) {
+      aviso.textContent = await mensajeDeError(respuesta);
+      return;
+    }
+    cerrarHoja();
+    toast("La traducción empezó. Seguila desde Mi biblioteca.");
+    cargarImportaciones();
+  } catch {
+    aviso.textContent = mensajeConexion();
+  } finally {
+    boton.disabled = false;
+  }
+}
+
+async function cancelarTrabajo(trabajoId) {
+  try {
+    await Sesion.pedir(`${API}/trabajos/${trabajoId}/cancelar`, { method: "POST" });
+  } catch {
+    toast(mensajeConexion());
+  }
+  cargarImportaciones();
+}
+
+// Cada libro se lee con una voz de su idioma; se recuerda la última elegida por idioma.
+const CLAVE_VOZ_IDIOMA = "audix-voz-";
+
+function ajustarVozAlIdioma(idioma) {
+  if (!idioma) return;
+  const voces = Lector.vocesDisponibles().filter((voz) => voz.lang.startsWith(idioma));
+  if (voces.length === 0 || (Lector.estado.voz && Lector.estado.voz.lang.startsWith(idioma))) return;
+  const guardada = localStorage.getItem(CLAVE_VOZ_IDIOMA + idioma);
+  const elegida = voces.find((voz) => voz.name === guardada) || voces[0];
+  $("selector-voz").value = elegida.name;
+  Lector.setVoz(elegida);
+}
+
 // ---------- Importación ----------
 
 function abrirImportacion() {
@@ -811,7 +888,8 @@ function pintarImportaciones(trabajos) {
     detalle.className = "detalle";
 
     if (trabajo.estado === "en_curso") {
-      detalle.textContent = `Procesando… ${trabajo.progreso}%`;
+      const verbo = trabajo.clase === "traduccion" ? "Traduciendo" : "Procesando";
+      detalle.textContent = `${verbo}… ${trabajo.progreso}%`;
       const barra = document.createElement("span");
       barra.className = "barra-fina";
       barra.setAttribute("role", "progressbar");
@@ -840,6 +918,14 @@ function pintarImportaciones(trabajos) {
       });
       acciones.appendChild(abrir);
     }
+    if (trabajo.estado === "en_curso" && trabajo.clase === "traduccion") {
+      const cancelar = document.createElement("button");
+      cancelar.type = "button";
+      cancelar.className = "boton-texto";
+      cancelar.textContent = "Cancelar";
+      cancelar.addEventListener("click", () => cancelarTrabajo(trabajo.id));
+      acciones.appendChild(cancelar);
+    }
     if (trabajo.estado !== "en_curso") {
       const quitar = document.createElement("button");
       quitar.type = "button";
@@ -860,6 +946,7 @@ function pintarImportaciones(trabajos) {
 
 async function leerCapitulo(numero, { reproducir = false } = {}) {
   libroSonando = libroActual;
+  ajustarVozAlIdioma(libroSonando.idioma);
   guardarUltimo(libroSonando);
   navegar("lector");
   try {
@@ -1067,6 +1154,7 @@ function conectarEventos() {
   });
   $("btn-menu-libro").addEventListener("click", () => {
     $("menu-libro-titulo").textContent = libroActual.titulo;
+    pintarOpcionTraducir();
     abrirHoja("hoja-menu-libro");
   });
 
@@ -1082,6 +1170,8 @@ function conectarEventos() {
   });
   $("btn-cambiar-titulo").addEventListener("click", abrirCambioDeTitulo);
   $("form-titulo").addEventListener("submit", guardarTitulo);
+  $("btn-traducir-libro").addEventListener("click", abrirTraduccion);
+  $("btn-confirmar-traducir").addEventListener("click", traducirLibroActual);
   $("btn-borrar-libro").addEventListener("click", abrirConfirmacionDeBorrado);
   $("btn-confirmar-borrar").addEventListener("click", borrarLibroActual);
 
@@ -1104,7 +1194,10 @@ function conectarEventos() {
 
   $("selector-voz").addEventListener("change", (evento) => {
     const voz = Lector.vocesDisponibles().find((v) => v.name === evento.target.value);
-    if (voz) Lector.setVoz(voz);
+    if (voz) {
+      Lector.setVoz(voz);
+      localStorage.setItem(CLAVE_VOZ_IDIOMA + voz.lang.slice(0, 2), voz.name);
+    }
   });
 
   // Barra espaciadora: reproducir o pausar desde el lector (en la PC).
