@@ -16,3 +16,7 @@ pytesseract>=0.3.10
 
 # Utilidades
 python-dotenv>=1.0.0
+
+# Narración con IA (voz narrada): motor neural de Microsoft Edge, gratis y
+# sin API key. Necesita internet en el momento de generar cada capítulo.
+edge-tts>=6.1.0

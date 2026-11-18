@@ -24,8 +24,9 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from backend.pipeline.epub_a_capitulos import procesar_epub
-from backend import seguridad, trabajos
+from backend import seguridad, trabajos, voces
 from backend.pipeline.pdf_a_capitulos import procesar_pdf
+from backend.pipeline.audio_narrado import generar_audio_capitulo
 
 RAIZ = Path(__file__).resolve().parent.parent
 DATA_DIR = Path(os.environ.get("AUDIX_DATA_DIR") or RAIZ / "data")
@@ -69,6 +70,12 @@ CABECERAS_DE_SEGURIDAD = {
 app = FastAPI(title="Audix", version="0.5.0", docs_url=None, redoc_url=None, openapi_url=None)
 
 freno = seguridad.Freno()
+
+# Trabajos de generación de audio narrado en curso, para no arrancar dos
+# veces la misma generación si el lector pide el mismo capítulo dos veces
+# (por ejemplo, al precargar el siguiente mientras se reproduce el actual).
+_audio_en_curso: dict[tuple[str, int], str] = {}
+_audio_lock = threading.Lock()
 
 
 def _es_https(request: Request) -> bool:
@@ -210,6 +217,23 @@ def _guardar_indice(carpeta: Path, indice: dict) -> None:
     )
 
 
+def _carpeta_audio(carpeta: Path) -> Path:
+    return carpeta / "audio"
+
+
+def _rutas_audio(carpeta: Path, numero: int) -> tuple[Path, Path]:
+    carpeta_audio = _carpeta_audio(carpeta)
+    return carpeta_audio / f"{numero:03d}.mp3", carpeta_audio / f"{numero:03d}.json"
+
+
+def _borrar_cache_audio(carpeta: Path) -> None:
+    shutil.rmtree(_carpeta_audio(carpeta), ignore_errors=True)
+
+
+def _libro_respuesta(libro_id: str, datos: dict) -> dict:
+    return {"id": libro_id, **datos, "voz": voces.voz_del_libro(datos), "portada": _url_portada(libro_id, datos)}
+
+
 def _slug(texto: str) -> str:
     sin_acentos = unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode()
     slug = re.sub(r"[^a-z0-9]+", "-", sin_acentos.lower()).strip("-")
@@ -252,7 +276,7 @@ def _pedir_pdf(archivo: UploadFile, tipo: str) -> bytes:
     return contenido
 
 
-def _procesar_pdf_en_segundo_plano(trabajo_id: str, ruta: Path, tipo: str) -> None:
+def _procesar_pdf_en_segundo_plano(trabajo_id: str, ruta: Path, tipo: str, config_voz: dict) -> None:
     """Corre en un hilo aparte. Actualiza el progreso y guarda el libro al terminar."""
     carpeta_temporal = ruta.parent
     try:
@@ -267,9 +291,11 @@ def _procesar_pdf_en_segundo_plano(trabajo_id: str, ruta: Path, tipo: str) -> No
         if not indice["capitulos"]:
             raise ValueError("No se encontró texto en el PDF.")
 
+        indice["voz"] = config_voz
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         destino = _carpeta_libre(_slug(indice["titulo"]))
         shutil.move(str(salida), str(destino))
+        _guardar_indice(destino, indice)
         trabajos.actualizar(trabajo_id, estado="listo", progreso=100, libro_id=destino.name)
     except Exception as error:
         trabajos.actualizar(trabajo_id, estado="error", error=str(error) or "Error desconocido")
@@ -278,12 +304,22 @@ def _procesar_pdf_en_segundo_plano(trabajo_id: str, ruta: Path, tipo: str) -> No
 
 
 @app.post("/libros/pdf", status_code=202)
-def importar_pdf(archivo: UploadFile, tipo: str = "novela") -> dict:
+def importar_pdf(
+    archivo: UploadFile,
+    tipo: str = "novela",
+    motor_voz: str = "sistema",
+    voz_id: str | None = None,
+    tono: str = "normal",
+) -> dict:
     """
     Inicia la importación de un PDF en segundo plano.
     Responde enseguida con el trabajo; el progreso se consulta en GET /trabajos/{id}.
     """
     contenido = _pedir_pdf(archivo, tipo)
+    try:
+        config_voz = voces.validar(motor_voz, voz_id, tono)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
     trabajo = trabajos.crear(nombre=archivo.filename, tipo=tipo)
 
     # El archivo se guarda en una carpeta temporal que el hilo borra al terminar.
@@ -294,7 +330,7 @@ def importar_pdf(archivo: UploadFile, tipo: str = "novela") -> dict:
 
     threading.Thread(
         target=_procesar_pdf_en_segundo_plano,
-        args=(trabajo["id"], ruta, tipo),
+        args=(trabajo["id"], ruta, tipo, config_voz),
         daemon=True,
     ).start()
     return trabajo
@@ -343,9 +379,18 @@ def listar_libros() -> list[dict]:
 
 
 @app.post("/libros", status_code=201)
-def importar_libro(archivo: UploadFile) -> dict:
+def importar_libro(
+    archivo: UploadFile,
+    motor_voz: str = "sistema",
+    voz_id: str | None = None,
+    tono: str = "normal",
+) -> dict:
     if not archivo.filename or not archivo.filename.lower().endswith(".epub"):
         raise HTTPException(status_code=400, detail="Solo se aceptan archivos EPUB (terminan en .epub)")
+    try:
+        config_voz = voces.validar(motor_voz, voz_id, tono)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
     contenido = archivo.file.read(TAMANO_MAXIMO + 1)
     if len(contenido) > TAMANO_MAXIMO:
@@ -372,23 +417,31 @@ def importar_libro(archivo: UploadFile) -> dict:
                 detail="El EPUB no tiene texto para leer (puede ser una imagen escaneada o estar vacío).",
             )
 
+        indice["voz"] = config_voz
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         destino = _carpeta_libre(_slug(indice["titulo"]))
         shutil.move(str(salida), str(destino))
+        _guardar_indice(destino, indice)
 
     return {
         "id": destino.name,
         "titulo": indice["titulo"],
         "autor": indice["autor"],
         "capitulos": len(indice["capitulos"]),
+        "voz": indice["voz"],
         "portada": _url_portada(destino.name, indice),
     }
 
 
+@app.get("/voces")
+def catalogo_voces() -> dict:
+    """Voces y tonos disponibles para la narración con IA."""
+    return voces.lista_para_frontend()
+
+
 @app.get("/libros/{libro_id}")
 def detalle_libro(libro_id: str) -> dict:
-    datos = _leer_indice(libro_id)
-    return {"id": libro_id, **datos, "portada": _url_portada(libro_id, datos)}
+    return _libro_respuesta(libro_id, _leer_indice(libro_id))
 
 
 class CambioTitulo(BaseModel):
@@ -407,7 +460,32 @@ def renombrar_libro(libro_id: str, cambio: CambioTitulo) -> dict:
     datos = _leer_indice(libro_id)
     datos["titulo"] = titulo
     _guardar_indice(carpeta, datos)
-    return {"id": libro_id, **datos, "portada": _url_portada(libro_id, datos)}
+    return _libro_respuesta(libro_id, datos)
+
+
+class CambioVoz(BaseModel):
+    motor: str
+    voz_id: str | None = None
+    tono: str = "normal"
+
+
+@app.patch("/libros/{libro_id}/voz")
+def cambiar_voz(libro_id: str, cambio: CambioVoz) -> dict:
+    """Cambia cómo se lee un libro. Si de verdad cambia algo, se borra el audio
+    ya generado (si había), porque corresponde a la voz o el tono anteriores."""
+    try:
+        config = voces.validar(cambio.motor, cambio.voz_id, cambio.tono)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    carpeta = _carpeta_libro(libro_id)
+    datos = _leer_indice(libro_id)
+    anterior = voces.voz_del_libro(datos)
+    datos["voz"] = config
+    _guardar_indice(carpeta, datos)
+    if anterior != config:
+        _borrar_cache_audio(carpeta)
+    return _libro_respuesta(libro_id, datos)
 
 
 @app.delete("/libros/{libro_id}", status_code=204)
@@ -468,6 +546,90 @@ def texto_capitulo(libro_id: str, numero: int) -> dict:
 
     archivo = _dentro(_carpeta_libro(libro_id), capitulo["archivo"])
     return {**capitulo, "texto": archivo.read_text(encoding="utf-8")}
+
+
+# ---------------------------------------------------------------------------
+# Audio narrado (motor "narracion"): se genera por capítulo, en segundo
+# plano, y se cachea en disco. Reusa el mismo registro de trabajos que la
+# importación de PDF, así el frontend ya sabe cómo mostrar el progreso.
+# ---------------------------------------------------------------------------
+
+def _capitulo_o_404(datos: dict, numero: int) -> dict:
+    capitulo = next((c for c in datos.get("capitulos", []) if c["numero"] == numero), None)
+    if capitulo is None:
+        raise HTTPException(status_code=404, detail="Capítulo no encontrado")
+    return capitulo
+
+
+def _generar_audio_en_segundo_plano(
+    trabajo_id: str, libro_id: str, numero: int, texto: str, voz_id: str, tono: str
+) -> None:
+    carpeta = DATA_DIR / libro_id
+    mp3, marcas_json = _rutas_audio(carpeta, numero)
+    try:
+        mp3.parent.mkdir(parents=True, exist_ok=True)
+        marcas = generar_audio_capitulo(texto, voz_id, tono, mp3)
+        marcas_json.write_text(json.dumps(marcas, ensure_ascii=False), encoding="utf-8")
+        trabajos.actualizar(trabajo_id, estado="listo", progreso=100)
+    except Exception as error:
+        mp3.unlink(missing_ok=True)
+        marcas_json.unlink(missing_ok=True)
+        trabajos.actualizar(trabajo_id, estado="error", error=str(error) or "Error desconocido")
+    finally:
+        with _audio_lock:
+            _audio_en_curso.pop((libro_id, numero), None)
+
+
+@app.post("/libros/{libro_id}/capitulos/{numero}/audio")
+def generar_audio(libro_id: str, numero: int) -> dict:
+    """
+    Si el audio de este capítulo ya está generado, lo avisa de una.
+    Si no, arranca la generación en segundo plano y devuelve el trabajo
+    (se consulta igual que una importación, en GET /trabajos/{id}).
+    """
+    carpeta = _carpeta_libro(libro_id)
+    datos = _leer_indice(libro_id)
+    config = voces.voz_del_libro(datos)
+    if config["motor"] != "narracion":
+        raise HTTPException(status_code=400, detail="Este libro no usa voz narrada.")
+    capitulo = _capitulo_o_404(datos, numero)
+
+    mp3, marcas_json = _rutas_audio(carpeta, numero)
+    if mp3.exists() and marcas_json.exists():
+        return {"listo": True, "trabajo": None}
+
+    with _audio_lock:
+        clave = (libro_id, numero)
+        trabajo_id = _audio_en_curso.get(clave)
+        if trabajo_id is None:
+            texto = _dentro(carpeta, capitulo["archivo"]).read_text(encoding="utf-8")
+            trabajo = trabajos.crear(nombre=capitulo["titulo"], tipo="audio")
+            trabajo_id = trabajo["id"]
+            _audio_en_curso[clave] = trabajo_id
+            threading.Thread(
+                target=_generar_audio_en_segundo_plano,
+                args=(trabajo_id, libro_id, numero, texto, config["voz_id"], config["tono"]),
+                daemon=True,
+            ).start()
+    return {"listo": False, "trabajo": trabajos.obtener(trabajo_id)}
+
+
+@app.get("/libros/{libro_id}/capitulos/{numero}/audio")
+def audio_capitulo(libro_id: str, numero: int) -> FileResponse:
+    carpeta = _carpeta_libro(libro_id)
+    mp3, _marcas = _rutas_audio(carpeta, numero)
+    if not mp3.exists():
+        raise HTTPException(status_code=404, detail="Todavía no se generó el audio de este capítulo")
+    return FileResponse(mp3, media_type="audio/mpeg")
+
+
+@app.get("/libros/{libro_id}/capitulos/{numero}/audio/marcas")
+def marcas_capitulo(libro_id: str, numero: int) -> list[dict]:
+    carpeta = _carpeta_libro(libro_id)
+    _mp3, marcas_json = _rutas_audio(carpeta, numero)
+    if not marcas_json.exists():
+        raise HTTPException(status_code=404, detail="Todavía no se generaron las marcas de este capítulo")
+    return json.loads(marcas_json.read_text(encoding="utf-8"))
 
 
 # La PWA se sirve desde la misma API, así alcanza un solo proceso y un solo puerto.
