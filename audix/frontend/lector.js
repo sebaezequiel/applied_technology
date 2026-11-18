@@ -5,7 +5,7 @@
 const Lector = (() => {
   const API = AUDIX_API;
   // 100 caracteres caben siempre en las 3 líneas que muestra la pantalla de reproducción.
-  const trozosMaximos = 100;
+  const trozosMaximos = 120;
   const CLAVE_VOZ = "audix-voz";
   const CLAVE_VELOCIDAD = "audix-velocidad";
   // Caracteres por segundo a velocidad 1×, para estimar el tiempo restante.
