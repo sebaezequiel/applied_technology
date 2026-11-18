@@ -813,7 +813,20 @@ function mostrarPaso(id) {
 function abrirPasoVoz(formato) {
   formatoImportacion = formato;
   mostrarPaso("paso-voz");
-  cargarCatalogoVoces().then(() => {
+  cargarVocesParaImportar();
+}
+
+// Pinta los selectores de la importación. Si el catálogo no llega (por
+// ejemplo, el servidor no se reinició después de actualizar), avisa en vez
+// de dejar los selectores vacíos.
+function cargarVocesParaImportar() {
+  $("aviso-voces").textContent = "";
+  return cargarCatalogoVoces().then(() => {
+    if (!catalogoVoces) {
+      $("aviso-voces").textContent =
+        "No se pudieron cargar las voces. Reiniciá el servidor de Audix y volvé a intentar.";
+      return;
+    }
     pintarSelectoresDeVoz($("selector-voz-importar"), $("selector-tono-importar"));
   });
 }
@@ -1207,6 +1220,7 @@ function conectarEventos() {
     radio.addEventListener("change", () => {
       const motor = document.querySelector('input[name="motor-voz"]:checked').value;
       $("opciones-narracion-importar").hidden = motor !== "narracion";
+      if (motor === "narracion" && !catalogoVoces) cargarVocesParaImportar();
     });
   });
   $("btn-continuar-voz").addEventListener("click", () => {
