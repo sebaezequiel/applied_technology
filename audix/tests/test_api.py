@@ -381,3 +381,179 @@ def test_renombrar_libro_con_titulo_muy_largo_devuelve_400(cliente):
 
 def test_renombrar_libro_inexistente_devuelve_404(cliente):
     assert cliente.patch("/libros/no-existe", json={"titulo": "Nuevo"}).status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Voz: configuración por libro (voz del sistema / voz narrada)
+# ---------------------------------------------------------------------------
+
+def test_libro_viejo_sin_voz_usa_sistema_por_defecto(cliente):
+    # El fixture "libro-prueba" no tiene clave "voz" en su indice.json, como
+    # cualquier libro importado antes de este cambio.
+    datos = cliente.get("/libros/libro-prueba").json()
+    assert datos["voz"] == {"motor": "sistema", "voz_id": None, "tono": "normal"}
+
+
+def test_catalogo_de_voces(cliente):
+    catalogo = cliente.get("/voces").json()
+    ids = [voz["id"] for voz in catalogo["voces"]]
+    assert "es-AR-TomasNeural" in ids
+    assert catalogo["voz_predeterminada"] in ids
+    assert {tono["id"] for tono in catalogo["tonos"]} == {"normal", "oscuro", "grave"}
+
+
+def test_importar_epub_con_voz_narrada_guarda_la_config(cliente, tmp_path):
+    contenido = crear_epub_bytes("Libro narrado", tmp_path)
+    respuesta = cliente.post(
+        "/libros?motor_voz=narracion&voz_id=es-AR-ElenaNeural&tono=oscuro",
+        files={"archivo": ("libro.epub", contenido, "application/epub+zip")},
+    )
+    assert respuesta.status_code == 201
+    datos = respuesta.json()
+    assert datos["voz"] == {"motor": "narracion", "voz_id": "es-AR-ElenaNeural", "tono": "oscuro"}
+    assert cliente.get(f"/libros/{datos['id']}").json()["voz"] == datos["voz"]
+
+
+def test_importar_epub_motor_de_voz_invalido_devuelve_400(cliente, tmp_path):
+    contenido = crear_epub_bytes("Libro con voz inválida", tmp_path)
+    respuesta = cliente.post(
+        "/libros?motor_voz=inventado",
+        files={"archivo": ("libro.epub", contenido, "application/epub+zip")},
+    )
+    assert respuesta.status_code == 400
+
+
+def test_importar_epub_voz_narrada_sin_voz_id_usa_la_predeterminada(cliente, tmp_path):
+    contenido = crear_epub_bytes("Sin voz elegida", tmp_path)
+    respuesta = cliente.post(
+        "/libros?motor_voz=narracion",
+        files={"archivo": ("libro.epub", contenido, "application/epub+zip")},
+    )
+    datos = respuesta.json()
+    assert datos["voz"]["motor"] == "narracion"
+    assert datos["voz"]["voz_id"]  # alguna voz válida, la predeterminada
+
+
+def test_cambiar_voz_de_un_libro(cliente):
+    respuesta = cliente.patch(
+        "/libros/libro-prueba/voz",
+        json={"motor": "narracion", "voz_id": "es-ES-AlvaroNeural", "tono": "grave"},
+    )
+    assert respuesta.status_code == 200
+    assert respuesta.json()["voz"] == {"motor": "narracion", "voz_id": "es-ES-AlvaroNeural", "tono": "grave"}
+    assert cliente.get("/libros/libro-prueba").json()["voz"]["motor"] == "narracion"
+
+    # Y se puede volver a la voz del sistema en cualquier momento (el "rollback" por libro).
+    vuelta = cliente.patch("/libros/libro-prueba/voz", json={"motor": "sistema", "tono": "normal"})
+    assert vuelta.json()["voz"] == {"motor": "sistema", "voz_id": None, "tono": "normal"}
+
+
+def test_cambiar_voz_invalida_devuelve_400(cliente):
+    assert cliente.patch("/libros/libro-prueba/voz", json={"motor": "sistema", "tono": "inventado"}).status_code == 400
+    assert cliente.patch("/libros/libro-prueba/voz", json={"motor": "narracion", "voz_id": "no-existe"}).status_code == 400
+
+
+def test_cambiar_voz_de_libro_inexistente_devuelve_404(cliente):
+    assert cliente.patch("/libros/no-existe/voz", json={"motor": "sistema"}).status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Audio narrado: generación por capítulo (mockeando edge-tts, sin red)
+# ---------------------------------------------------------------------------
+
+def _generador_de_audio_falso(textos_vistos=None, espera=None):
+    """Sustituye a `generar_audio_capitulo`: no llama a ningún servicio, solo
+    escribe un mp3 de prueba y devuelve marcas fijas. Sin red.
+
+    `espera`, si se pasa, es un threading.Event: el hilo de generación no
+    termina hasta que el test lo libera. Sirve para probar a propósito qué
+    pasa mientras un trabajo todavía está en curso."""
+
+    def generar(texto: str, voz_id: str, tono: str, destino_mp3) -> list[dict]:
+        if espera is not None:
+            espera.wait(timeout=5)
+        if textos_vistos is not None:
+            textos_vistos.append(texto)
+        destino_mp3.write_bytes(b"mp3-de-prueba")
+        return [{"texto": texto[:20], "inicio": 0.0, "fin": 1.0}]
+
+    return generar
+
+
+def test_generar_audio_en_libro_con_voz_de_sistema_devuelve_400(cliente):
+    respuesta = cliente.post("/libros/libro-prueba/capitulos/1/audio")
+    assert respuesta.status_code == 400
+
+
+def test_generar_audio_de_capitulo_inexistente_devuelve_404(cliente):
+    cliente.patch("/libros/libro-prueba/voz", json={"motor": "narracion"})
+    assert cliente.post("/libros/libro-prueba/capitulos/99/audio").status_code == 404
+
+
+def test_generar_audio_arranca_trabajo_y_queda_cacheado(cliente, monkeypatch):
+    monkeypatch.setattr(main, "generar_audio_capitulo", _generador_de_audio_falso())
+    cliente.patch("/libros/libro-prueba/voz", json={"motor": "narracion", "voz_id": "es-AR-TomasNeural"})
+
+    primera = cliente.post("/libros/libro-prueba/capitulos/1/audio")
+    assert primera.status_code == 200
+    cuerpo = primera.json()
+    assert cuerpo["listo"] is False
+    assert cuerpo["trabajo"]["estado"] == "en_curso"
+
+    final = esperar_trabajo(cliente, cuerpo["trabajo"]["id"])
+    assert final["estado"] == "listo"
+
+    # Ya generado: una segunda llamada lo avisa de una, sin trabajo nuevo.
+    segunda = cliente.post("/libros/libro-prueba/capitulos/1/audio")
+    assert segunda.json() == {"listo": True, "trabajo": None}
+
+    audio = cliente.get("/libros/libro-prueba/capitulos/1/audio")
+    assert audio.status_code == 200
+    assert audio.content == b"mp3-de-prueba"
+
+    marcas = cliente.get("/libros/libro-prueba/capitulos/1/audio/marcas")
+    assert marcas.status_code == 200
+    assert marcas.json() == [{"texto": "Primer capítulo.", "inicio": 0.0, "fin": 1.0}]
+
+
+def test_audio_y_marcas_sin_generar_devuelven_404(cliente):
+    cliente.patch("/libros/libro-prueba/voz", json={"motor": "narracion"})
+    assert cliente.get("/libros/libro-prueba/capitulos/1/audio").status_code == 404
+    assert cliente.get("/libros/libro-prueba/capitulos/1/audio/marcas").status_code == 404
+
+
+def test_generar_audio_dos_veces_seguidas_no_duplica_el_trabajo(cliente, monkeypatch):
+    import threading
+
+    vistos = []
+    espera = threading.Event()
+    monkeypatch.setattr(main, "generar_audio_capitulo", _generador_de_audio_falso(vistos, espera))
+    cliente.patch("/libros/libro-prueba/voz", json={"motor": "narracion"})
+
+    primera = cliente.post("/libros/libro-prueba/capitulos/1/audio").json()
+    segunda = cliente.post("/libros/libro-prueba/capitulos/1/audio").json()
+    espera.set()  # recién ahora deja terminar al hilo, ya hicimos las dos llamadas
+    # La segunda ve que ya hay un trabajo en curso para ese mismo capítulo y no arranca otro.
+    assert segunda["trabajo"]["id"] == primera["trabajo"]["id"]
+
+    esperar_trabajo(cliente, primera["trabajo"]["id"])
+    assert len(vistos) == 1
+
+
+def test_cambiar_voz_borra_el_audio_ya_generado_si_cambia_de_verdad(cliente, monkeypatch, tmp_path):
+    monkeypatch.setattr(main, "generar_audio_capitulo", _generador_de_audio_falso())
+    cliente.patch("/libros/libro-prueba/voz", json={"motor": "narracion", "voz_id": "es-AR-TomasNeural"})
+    trabajo = cliente.post("/libros/libro-prueba/capitulos/1/audio").json()["trabajo"]
+    esperar_trabajo(cliente, trabajo["id"])
+    assert (tmp_path / "libro-prueba" / "audio" / "001.mp3").exists()
+
+    # Cambiar el tono es cambiar de verdad: el audio viejo ya no corresponde.
+    cliente.patch("/libros/libro-prueba/voz", json={"motor": "narracion", "voz_id": "es-AR-TomasNeural", "tono": "oscuro"})
+    assert not (tmp_path / "libro-prueba" / "audio" / "001.mp3").exists()
+
+    # Guardar la misma configuración de nuevo no borra nada (no cambió nada de verdad).
+    cliente.patch("/libros/libro-prueba/voz", json={"motor": "narracion", "voz_id": "es-AR-TomasNeural", "tono": "oscuro"})
+    trabajo2 = cliente.post("/libros/libro-prueba/capitulos/1/audio").json()["trabajo"]
+    esperar_trabajo(cliente, trabajo2["id"])
+    cliente.patch("/libros/libro-prueba/voz", json={"motor": "narracion", "voz_id": "es-AR-TomasNeural", "tono": "oscuro"})
+    assert (tmp_path / "libro-prueba" / "audio" / "001.mp3").exists()

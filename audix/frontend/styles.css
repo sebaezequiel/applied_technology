@@ -1190,6 +1190,37 @@ body.con-mini .pantalla {
   accent-color: var(--clay);
 }
 
+/* Variante con una línea de descripción debajo del nombre de la opción
+   (elegir voz del sistema o narrada, al importar o al cambiarla después). */
+.opcion-radio-desc {
+  align-items: flex-start;
+  min-height: 0;
+  padding: 12px 14px;
+}
+
+.opcion-radio-texto {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.opcion-radio-texto small {
+  font-weight: 400;
+  color: var(--gris);
+}
+
+#opciones-narracion-importar,
+#opciones-narracion-editar {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+#campo-voz-narracion #btn-cambiar-voz-lector {
+  justify-content: flex-start;
+  font-weight: 600;
+}
+
 .hoja-menu {
   background: var(--superficie);
   border: 1px solid var(--borde);

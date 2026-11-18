@@ -1,5 +1,17 @@
-// Lector: lee un capítulo en voz alta con la voz del sistema (Web Speech API).
-// El texto se divide en trozos cortos porque los navegadores cortan las lecturas largas.
+// Lector: lee un capítulo en voz alta. Tiene dos motores, elegidos por libro
+// (ver backend/voces.py y la clave "voz" de cada libro):
+//   - "sistema": la voz del navegador (Web Speech API), como siempre.
+//   - "narracion": un archivo de audio generado con IA, que el backend arma
+//     por capítulo. Habla distinto de WebSpeech: en vez de ir pidiendo una
+//     oración a la vez, el capítulo entero es un <audio>, y la posición de
+//     lectura se sigue con las "marcas" de tiempo que manda el servidor
+//     (una por cada trozo de texto, igual de cortos que los que ya se
+//     armaban para la voz del sistema).
+//
+// El resto de la app (app.js) no necesita saber cuál de los dos está activo:
+// llama a la misma API de siempre (play, pausar, siguiente, saltar...) y el
+// motor correcto se elige solo, según `estado.motor`.
+//
 // Guarda el progreso por libro para retomar donde quedaste.
 
 const Lector = (() => {
@@ -8,22 +20,31 @@ const Lector = (() => {
   const trozosMaximos = 120;
   const CLAVE_VOZ = "audix-voz";
   const CLAVE_VELOCIDAD = "audix-velocidad";
-  // Caracteres por segundo a velocidad 1×, para estimar el tiempo restante.
+  // Caracteres por segundo a velocidad 1×, para estimar el tiempo restante
+  // con la voz del sistema (con la narración se usa el tiempo real del audio).
   const CARACTERES_POR_SEGUNDO = 15;
 
   const estado = {
     libroId: null,
+    motor: "sistema", // "sistema" | "narracion"
     numero: 1,
     total: 0,
-    trozos: [],
+    trozos: [],      // textos a mostrar, en los dos motores
+    marcas: null,    // solo con motor "narracion": [{texto, inicio, fin}] en segundos
     indice: 0,
     reproduciendo: false,
-    cargando: false,
+    cargando: false,  // pidiendo el texto del capítulo
+    generando: false, // (solo narración) generando el audio en el servidor
     velocidad: velocidadGuardada(),
     voz: null,
     alEscuchar: null,
     alCambiar: null,
   };
+
+  // Un solo <audio>, reusado para todos los capítulos narrados: cambiar el
+  // src alcanza para pasar de uno a otro.
+  const audioEl = new Audio();
+  audioEl.preload = "auto";
 
   // Cada lectura lleva una ficha. Al cortar la voz se cambia la ficha, así los
   // eventos que lleguen tarde de un trozo viejo se ignoran y no avanzan dos veces.
@@ -32,6 +53,7 @@ const Lector = (() => {
   function cortarVoz() {
     ficha += 1;
     speechSynthesis.cancel();
+    audioEl.pause();
   }
 
   // Pausas en orden de prioridad: el punto corta antes que el punto y coma,
@@ -142,6 +164,10 @@ const Lector = (() => {
     if (estado.alCambiar) estado.alCambiar({ ...estado });
   }
 
+  // ---------------------------------------------------------------------
+  // Motor "sistema": Web Speech API, un trozo a la vez (como siempre)
+  // ---------------------------------------------------------------------
+
   function hablarSiguiente() {
     if (!estado.reproduciendo) return;
 
@@ -151,7 +177,7 @@ const Lector = (() => {
         cargarCapitulo(estado.numero + 1).then(() => {
           estado.reproduciendo = true;
           notificarCambio();
-          hablarSiguiente();
+          continuarReproduccion();
         }).catch(() => {
           estado.reproduciendo = false;
           notificarCambio();
@@ -189,9 +215,122 @@ const Lector = (() => {
     speechSynthesis.speak(enunciado);
   }
 
+  // ---------------------------------------------------------------------
+  // Motor "narracion": un <audio> por capítulo, con marcas de tiempo
+  // ---------------------------------------------------------------------
+
+  // Consulta /trabajos/{id} hasta que termine (o pasen demasiados minutos).
+  async function esperarTrabajo(trabajoId, limiteMs = 180000) {
+    const fin = Date.now() + limiteMs;
+    for (;;) {
+      const respuesta = await Sesion.pedir(`${API}/trabajos/${trabajoId}`);
+      if (!respuesta.ok) throw new Error("No se pudo consultar el estado del audio.");
+      const trabajo = await respuesta.json();
+      if (trabajo.estado !== "en_curso") return trabajo;
+      if (Date.now() > fin) throw new Error("La generación del audio está tardando demasiado.");
+      await new Promise((resolver) => setTimeout(resolver, 1200));
+    }
+  }
+
+  // Si ya existe (quedó cacheado), listo. Si no, lo genera en el servidor y
+  // espera. Puede tardar unos segundos la primera vez que se escucha un
+  // capítulo; después queda guardado.
+  async function cargarCapituloNarrado(numero) {
+    const base = `${API}/libros/${estado.libroId}/capitulos/${numero}/audio`;
+    const inicio = await Sesion.pedir(base, { method: "POST" });
+    if (!inicio.ok) throw new Error("No se pudo generar el audio de este capítulo.");
+    const datos = await inicio.json();
+
+    if (!datos.listo) {
+      estado.generando = true;
+      notificarCambio();
+      const trabajo = await esperarTrabajo(datos.trabajo.id);
+      if (trabajo.estado === "error") {
+        throw new Error(trabajo.error || "No se pudo generar el audio de este capítulo.");
+      }
+    }
+
+    const marcas = await Sesion.pedir(`${base}/marcas`);
+    if (!marcas.ok) throw new Error("No se pudieron cargar los subtítulos del capítulo.");
+    estado.marcas = await marcas.json();
+    estado.trozos = estado.marcas.map((marca) => marca.texto);
+
+    cortarVoz(); // por si quedó algo sonando del capítulo anterior
+    audioEl.src = base;
+    audioEl.playbackRate = estado.velocidad;
+    audioEl.load();
+
+    precargarSiguienteNarracion();
+  }
+
+  // Adelanta, en segundo plano y sin esperar el resultado, la generación del
+  // próximo capítulo mientras se escucha este. Si falla, no pasa nada: se
+  // vuelve a pedir cuando haga falta.
+  function precargarSiguienteNarracion() {
+    if (estado.motor !== "narracion" || estado.numero >= estado.total) return;
+    const base = `${API}/libros/${estado.libroId}/capitulos/${estado.numero + 1}/audio`;
+    Sesion.pedir(base, { method: "POST" }).catch(() => {});
+  }
+
+  function reproducirNarracion() {
+    audioEl.play().catch(() => {
+      estado.reproduciendo = false;
+      notificarCambio();
+    });
+  }
+
+  function indiceParaTiempo(segundos) {
+    const posicion = estado.marcas.findIndex((marca) => segundos < marca.fin);
+    return posicion === -1 ? estado.marcas.length - 1 : posicion;
+  }
+
+  audioEl.addEventListener("timeupdate", () => {
+    if (estado.motor !== "narracion" || !estado.marcas || !estado.marcas.length) return;
+    const nuevoIndice = indiceParaTiempo(audioEl.currentTime);
+    if (nuevoIndice === estado.indice) return;
+    estado.indice = nuevoIndice;
+    guardarProgreso();
+    notificarCambio();
+  });
+
+  audioEl.addEventListener("ended", () => {
+    if (estado.motor !== "narracion" || !estado.reproduciendo) return;
+    if (estado.numero < estado.total) {
+      cargarCapitulo(estado.numero + 1).then(() => {
+        estado.reproduciendo = true;
+        notificarCambio();
+        continuarReproduccion();
+      }).catch(() => {
+        estado.reproduciendo = false;
+        notificarCambio();
+      });
+    } else {
+      estado.reproduciendo = false;
+      notificarCambio();
+    }
+  });
+
+  audioEl.addEventListener("error", () => {
+    if (estado.motor !== "narracion" || !estado.reproduciendo) return;
+    estado.reproduciendo = false;
+    notificarCambio();
+  });
+
+  // ---------------------------------------------------------------------
+  // API común a los dos motores
+  // ---------------------------------------------------------------------
+
+  // Sigue reproduciendo en el motor que corresponda (se usa al pasar de
+  // capítulo y al arrancar con play()).
+  function continuarReproduccion() {
+    if (estado.motor === "narracion") reproducirNarracion();
+    else hablarSiguiente();
+  }
+
   async function cargarCapitulo(numero, { retomar = false } = {}) {
     cortarVoz();
     estado.cargando = true;
+    estado.generando = false;
     notificarCambio();
     try {
       const respuesta = await Sesion.pedir(`${API}/libros/${estado.libroId}/capitulos/${numero}`);
@@ -199,24 +338,33 @@ const Lector = (() => {
       const datos = await respuesta.json();
 
       estado.numero = numero;
-      estado.trozos = partirEnTrozos(datos.texto);
+      if (estado.motor === "narracion") {
+        await cargarCapituloNarrado(numero);
+      } else {
+        estado.trozos = partirEnTrozos(datos.texto);
+        estado.marcas = null;
+      }
       estado.indice = 0;
 
       if (retomar) {
         const progreso = leerProgreso(estado.libroId);
         if (progreso && progreso.numero === numero) {
           estado.indice = Math.min(progreso.indice, estado.trozos.length);
+          if (estado.motor === "narracion" && estado.marcas[estado.indice]) {
+            audioEl.currentTime = estado.marcas[estado.indice].inicio;
+          }
         }
       }
       guardarProgreso();
       return datos;
     } finally {
       estado.cargando = false;
+      estado.generando = false;
       notificarCambio();
     }
   }
 
-  async function abrir(libroId, total, numero = 1) {
+  async function abrir(libroId, total, numero = 1, motor = "sistema") {
     // Si ya está cargado ese mismo capítulo, no se corta la lectura.
     if (estado.libroId === libroId && estado.numero === numero && estado.trozos.length) {
       estado.total = total;
@@ -225,8 +373,10 @@ const Lector = (() => {
     }
     estado.reproduciendo = false;
     estado.libroId = libroId;
+    estado.motor = motor === "narracion" ? "narracion" : "sistema";
     estado.total = total;
     estado.trozos = [];
+    estado.marcas = null;
     estado.indice = 0;
     return cargarCapitulo(numero, { retomar: true });
   }
@@ -237,7 +387,10 @@ const Lector = (() => {
     estado.reproduciendo = false;
     estado.libroId = null;
     estado.trozos = [];
+    estado.marcas = null;
     estado.indice = 0;
+    audioEl.removeAttribute("src");
+    audioEl.load();
     notificarCambio();
   }
 
@@ -247,11 +400,12 @@ const Lector = (() => {
     // Si el libro había terminado, vuelve a empezar el capítulo.
     if (estado.indice >= estado.trozos.length && estado.numero >= estado.total) {
       estado.indice = 0;
+      if (estado.motor === "narracion") audioEl.currentTime = 0;
     }
     estado.reproduciendo = true;
     if (estado.alEscuchar) estado.alEscuchar(estado.libroId);
     notificarCambio();
-    hablarSiguiente();
+    continuarReproduccion();
   }
 
   function pausar() {
@@ -288,7 +442,9 @@ const Lector = (() => {
     if (estado.trozos.length === 0) return;
     estado.indice = Math.max(0, Math.min(Math.round(indice), estado.trozos.length - 1));
     guardarProgreso();
-    if (estado.reproduciendo) {
+    if (estado.motor === "narracion") {
+      audioEl.currentTime = estado.marcas[estado.indice].inicio;
+    } else if (estado.reproduciendo) {
       cortarVoz();
       hablarSiguiente();
     }
@@ -303,7 +459,10 @@ const Lector = (() => {
   function setVelocidad(valor) {
     estado.velocidad = valor;
     localStorage.setItem(CLAVE_VELOCIDAD, String(valor));
-    if (estado.reproduciendo) {
+    if (estado.motor === "narracion") {
+      // El audio no necesita reiniciarse: cambia la velocidad al toque.
+      audioEl.playbackRate = valor;
+    } else if (estado.reproduciendo) {
       // Reinicia el trozo actual con la nueva velocidad.
       cortarVoz();
       hablarSiguiente();
@@ -317,10 +476,12 @@ const Lector = (() => {
   }
 
   // Guarda el nombre de la voz para usarla también la próxima vez.
+  // Solo tiene efecto con el motor "sistema"; con "narracion" la voz es
+  // la que se elige al importar el libro (o después, desde "Cambiar voz").
   function setVoz(voz) {
     estado.voz = voz;
     if (voz) localStorage.setItem(CLAVE_VOZ, voz.name);
-    if (estado.reproduciendo) {
+    if (estado.motor === "sistema" && estado.reproduciendo) {
       cortarVoz();
       hablarSiguiente();
     }
@@ -343,8 +504,14 @@ const Lector = (() => {
     return Math.round((estado.indice / estado.trozos.length) * 100);
   }
 
-  // Estimación de los segundos que faltan del capítulo, según la velocidad.
+  // Estimación de los segundos que faltan del capítulo. Con la narración se
+  // usa el tiempo real del audio (más preciso); con la voz del sistema, una
+  // estimación según los caracteres que quedan.
   function segundosRestantes() {
+    if (estado.motor === "narracion" && estado.marcas && estado.marcas.length) {
+      const fin = estado.marcas[estado.marcas.length - 1].fin;
+      return Math.max(0, Math.round((fin - audioEl.currentTime) / estado.velocidad));
+    }
     let caracteres = 0;
     for (let i = estado.indice; i < estado.trozos.length; i += 1) {
       caracteres += estado.trozos[i].length;

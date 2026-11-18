@@ -193,10 +193,14 @@
           <span class="campo-etiqueta" id="etiqueta-velocidad">Velocidad</span>
           <div class="chips" id="chips-velocidad" role="group" aria-labelledby="etiqueta-velocidad"></div>
         </div>
-        <label class="campo">
+        <label class="campo" id="campo-voz-sistema">
           <span class="campo-etiqueta">Voz</span>
           <select id="selector-voz"></select>
         </label>
+        <div class="campo" id="campo-voz-narracion" hidden>
+          <span class="campo-etiqueta">Voz narrada</span>
+          <button type="button" class="boton-secundario" id="btn-cambiar-voz-lector"></button>
+        </div>
       </div>
     </section>
   </main>
@@ -239,7 +243,42 @@
         <button type="button" class="boton-texto" data-cerrar-hoja>Cancelar</button>
       </section>
 
-      <!-- Paso 2a: EPUB — sube directamente -->
+      <!-- Paso 2: cómo se va a leer (común a EPUB y PDF) -->
+      <section class="hoja-paso" id="paso-voz" hidden>
+        <h2 class="hoja-titulo">¿Cómo querés escucharlo?</h2>
+        <div class="hoja-opciones hoja-opciones-col">
+          <label class="opcion-radio opcion-radio-desc">
+            <input type="radio" name="motor-voz" value="sistema" checked>
+            <span class="opcion-radio-texto">
+              <strong>Voz del sistema</strong>
+              <small>Gratis e instantánea. La voz que ya conocés.</small>
+            </span>
+          </label>
+          <label class="opcion-radio opcion-radio-desc">
+            <input type="radio" name="motor-voz" value="narracion">
+            <span class="opcion-radio-texto">
+              <strong>Voz narrada</strong>
+              <small>Más natural. La primera vez que escuchás cada capítulo tarda unos segundos en generarse.</small>
+            </span>
+          </label>
+        </div>
+
+        <div id="opciones-narracion-importar" hidden>
+          <label class="campo">
+            <span class="campo-etiqueta">Voz</span>
+            <select id="selector-voz-importar"></select>
+          </label>
+          <label class="campo">
+            <span class="campo-etiqueta">Tono</span>
+            <select id="selector-tono-importar"></select>
+          </label>
+        </div>
+
+        <button type="button" class="boton-principal" id="btn-continuar-voz">Continuar</button>
+        <button type="button" class="boton-texto" data-cerrar-hoja>Cancelar</button>
+      </section>
+
+      <!-- Paso 3a: EPUB — sube directamente -->
       <section class="hoja-paso" id="paso-epub" hidden>
         <h2 class="hoja-titulo">Importar EPUB</h2>
         <p class="hoja-desc">Elegí el archivo EPUB que querés escuchar.</p>
@@ -250,7 +289,7 @@
         <button type="button" class="boton-texto" data-cerrar-hoja>Cancelar</button>
       </section>
 
-      <!-- Paso 2b: PDF — elige tipo de documento -->
+      <!-- Paso 3b: PDF — elige tipo de documento -->
       <section class="hoja-paso" id="paso-pdf-tipo" hidden>
         <h2 class="hoja-titulo">¿Qué tipo de PDF es?</h2>
         <p class="hoja-desc">Sirve para separar bien los capítulos. Se procesa en segundo plano.</p>
@@ -288,6 +327,9 @@
         <button type="button" class="opcion-menu" id="btn-cambiar-titulo">
           <svg class="icono" aria-hidden="true"><use href="#i-lapiz"/></svg> Cambiar título
         </button>
+        <button type="button" class="opcion-menu" id="btn-cambiar-voz">
+          <svg class="icono" aria-hidden="true"><use href="#i-ondas"/></svg> Cambiar voz
+        </button>
         <button type="button" class="opcion-menu peligro" id="btn-borrar-libro">
           <svg class="icono" aria-hidden="true"><use href="#i-papelera"/></svg> Borrar libro
         </button>
@@ -306,6 +348,43 @@
       <button type="submit" class="boton-principal" id="btn-guardar-titulo">Guardar</button>
       <button type="button" class="boton-texto" data-cerrar-hoja>Cancelar</button>
     </form>
+  </div>
+
+  <!-- Hoja: cambiar voz de un libro ya importado -->
+  <div class="hoja-fondo" id="hoja-voz" hidden role="dialog" aria-modal="true" aria-label="Cambiar voz">
+    <div class="hoja">
+      <span class="hoja-tirador" aria-hidden="true"></span>
+      <h2 class="hoja-titulo">Cambiar voz</h2>
+      <div class="hoja-opciones hoja-opciones-col">
+        <label class="opcion-radio opcion-radio-desc">
+          <input type="radio" name="motor-voz-editar" value="sistema">
+          <span class="opcion-radio-texto">
+            <strong>Voz del sistema</strong>
+            <small>Gratis e instantánea.</small>
+          </span>
+        </label>
+        <label class="opcion-radio opcion-radio-desc">
+          <input type="radio" name="motor-voz-editar" value="narracion">
+          <span class="opcion-radio-texto">
+            <strong>Voz narrada</strong>
+            <small>Si cambiás la voz o el tono, se vuelve a generar.</small>
+          </span>
+        </label>
+      </div>
+      <div id="opciones-narracion-editar" hidden>
+        <label class="campo">
+          <span class="campo-etiqueta">Voz</span>
+          <select id="selector-voz-editar"></select>
+        </label>
+        <label class="campo">
+          <span class="campo-etiqueta">Tono</span>
+          <select id="selector-tono-editar"></select>
+        </label>
+      </div>
+      <p class="aviso" id="aviso-voz" aria-live="polite"></p>
+      <button type="button" class="boton-principal" id="btn-guardar-voz">Guardar</button>
+      <button type="button" class="boton-texto" data-cerrar-hoja>Cancelar</button>
+    </div>
   </div>
 
   <!-- Hoja: confirmar borrado -->
