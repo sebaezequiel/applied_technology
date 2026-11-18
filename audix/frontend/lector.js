@@ -34,13 +34,11 @@ const Lector = (() => {
     speechSynthesis.cancel();
   }
 
-  // Parte una frase que por sí sola supera el máximo en trozos por palabra.
-  function partirFraseLarga(frase) {
-    if (frase.length <= trozosMaximos) return [frase];
+  // Último recurso: un fragmento sin pausas posibles se parte por palabras.
+  function partirPorPalabras(fragmento) {
     const trozos = [];
-    const palabras = frase.split(" ");
     let actual = "";
-    for (const palabra of palabras) {
+    for (const palabra of fragmento.split(" ")) {
       const candidato = actual ? `${actual} ${palabra}` : palabra;
       if (candidato.length > trozosMaximos && actual) {
         trozos.push(actual);
@@ -53,33 +51,25 @@ const Lector = (() => {
     return trozos;
   }
 
+  // Corta en pausas naturales: puntuación (comas, puntos, etc.) y saltos de línea.
+  // Une fragmentos mientras entren en el límite, así cada trozo termina en una
+  // pausa y no a mitad de una frase.
   function partirEnTrozos(texto) {
-    const frases = texto
-      .split(/(?<=[.!?…])\s+|\n+/)
-      .map((frase) => frase.trim())
-      .filter(Boolean);
+    const fragmentos = texto
+      .split(/(?<=[,;:.!?…])\s+|\n+/)
+      .map((fragmento) => fragmento.trim())
+      .filter(Boolean)
+      .flatMap((fragmento) =>
+        fragmento.length > trozosMaximos ? partirPorPalabras(fragmento) : [fragmento]
+      );
 
     const trozos = [];
     let actual = "";
-    for (const frase of frases) {
-      const candidato = actual ? `${actual} ${frase}` : frase;
+    for (const fragmento of fragmentos) {
+      const candidato = actual ? `${actual} ${fragmento}` : fragmento;
       if (candidato.length > trozosMaximos && actual) {
-        // Cierra el trozo acumulado y arranca con la nueva frase.
         trozos.push(actual);
-        // Si la nueva frase sola ya supera el límite, se parte por palabras.
-        if (frase.length > trozosMaximos) {
-          const partes = partirFraseLarga(frase);
-          // La última parte queda en "actual" para seguir acumulando.
-          trozos.push(...partes.slice(0, -1));
-          actual = partes[partes.length - 1];
-        } else {
-          actual = frase;
-        }
-      } else if (candidato.length > trozosMaximos) {
-        // La frase sola ya supera el límite (actual estaba vacío).
-        const partes = partirFraseLarga(frase);
-        trozos.push(...partes.slice(0, -1));
-        actual = partes[partes.length - 1];
+        actual = fragmento;
       } else {
         actual = candidato;
       }
