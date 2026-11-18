@@ -34,48 +34,56 @@ const Lector = (() => {
     speechSynthesis.cancel();
   }
 
-  // Último recurso: un fragmento sin pausas posibles se parte por palabras.
-  function partirPorPalabras(fragmento) {
-    const trozos = [];
-    let actual = "";
-    for (const palabra of fragmento.split(" ")) {
-      const candidato = actual ? `${actual} ${palabra}` : palabra;
-      if (candidato.length > trozosMaximos && actual) {
-        trozos.push(actual);
-        actual = palabra;
-      } else {
-        actual = candidato;
-      }
+  // Pausas en orden de prioridad: el punto corta antes que el punto y coma,
+  // y este antes que la coma.
+  const pausasPorPrioridad = [/[.!?…]/, /[;:]/, /,/];
+
+  // Posición (después del signo) de la última pausa de ese tipo que entra en el límite.
+  function ultimaPausa(texto, marca) {
+    let mejor = -1;
+    const hasta = Math.min(texto.length, trozosMaximos);
+    for (let i = 0; i < hasta; i += 1) {
+      const esFinal = i + 1 === texto.length || /\s/.test(texto[i + 1]);
+      if (marca.test(texto[i]) && esFinal) mejor = i + 1;
     }
-    if (actual) trozos.push(actual);
+    return mejor;
+  }
+
+  // Último recurso: el último espacio que entra en el límite.
+  function ultimoEspacio(texto) {
+    for (let i = Math.min(texto.length - 1, trozosMaximos); i > 0; i -= 1) {
+      if (/\s/.test(texto[i])) return i;
+    }
+    return Math.min(texto.length, trozosMaximos);
+  }
+
+  // Corta el texto eligiendo siempre la pausa de mayor prioridad que entre en el
+  // límite; así un trozo termina en punto si hay uno disponible, y solo si no
+  // lo hay, en punto y coma, en coma o, en último caso, en un espacio.
+  function cortarEnPausas(texto) {
+    const trozos = [];
+    let resto = texto.trim();
+    while (resto.length > trozosMaximos) {
+      let corte = -1;
+      for (const marca of pausasPorPrioridad) {
+        corte = ultimaPausa(resto, marca);
+        if (corte > 0) break;
+      }
+      if (corte <= 0) corte = ultimoEspacio(resto);
+      trozos.push(resto.slice(0, corte).trim());
+      resto = resto.slice(corte).trim();
+    }
+    if (resto) trozos.push(resto);
     return trozos;
   }
 
-  // Corta en pausas naturales: puntuación (comas, puntos, etc.) y saltos de línea.
-  // Une fragmentos mientras entren en el límite, así cada trozo termina en una
-  // pausa y no a mitad de una frase.
+  // Cada salto de línea es una pausa fuerte; dentro de cada párrafo se aplica la prioridad.
   function partirEnTrozos(texto) {
-    const fragmentos = texto
-      .split(/(?<=[,;:.!?…])\s+|\n+/)
-      .map((fragmento) => fragmento.trim())
+    return texto
+      .split(/\n+/)
+      .map((parrafo) => parrafo.trim())
       .filter(Boolean)
-      .flatMap((fragmento) =>
-        fragmento.length > trozosMaximos ? partirPorPalabras(fragmento) : [fragmento]
-      );
-
-    const trozos = [];
-    let actual = "";
-    for (const fragmento of fragmentos) {
-      const candidato = actual ? `${actual} ${fragmento}` : fragmento;
-      if (candidato.length > trozosMaximos && actual) {
-        trozos.push(actual);
-        actual = fragmento;
-      } else {
-        actual = candidato;
-      }
-    }
-    if (actual) trozos.push(actual);
-    return trozos;
+      .flatMap(cortarEnPausas);
   }
 
   function clavProgreso(libroId) {
