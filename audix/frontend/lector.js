@@ -4,7 +4,8 @@
 
 const Lector = (() => {
   const API = AUDIX_API;
-  const trozosMaximos = 220;
+  // 100 caracteres caben siempre en las 3 líneas que muestra la pantalla de reproducción.
+  const trozosMaximos = 100;
   const CLAVE_VOZ = "audix-voz";
   const CLAVE_VELOCIDAD = "audix-velocidad";
   // Caracteres por segundo a velocidad 1×, para estimar el tiempo restante.
@@ -33,6 +34,25 @@ const Lector = (() => {
     speechSynthesis.cancel();
   }
 
+  // Parte una frase que por sí sola supera el máximo en trozos por palabra.
+  function partirFraseLarga(frase) {
+    if (frase.length <= trozosMaximos) return [frase];
+    const trozos = [];
+    const palabras = frase.split(" ");
+    let actual = "";
+    for (const palabra of palabras) {
+      const candidato = actual ? `${actual} ${palabra}` : palabra;
+      if (candidato.length > trozosMaximos && actual) {
+        trozos.push(actual);
+        actual = palabra;
+      } else {
+        actual = candidato;
+      }
+    }
+    if (actual) trozos.push(actual);
+    return trozos;
+  }
+
   function partirEnTrozos(texto) {
     const frases = texto
       .split(/(?<=[.!?…])\s+|\n+/)
@@ -44,8 +64,22 @@ const Lector = (() => {
     for (const frase of frases) {
       const candidato = actual ? `${actual} ${frase}` : frase;
       if (candidato.length > trozosMaximos && actual) {
+        // Cierra el trozo acumulado y arranca con la nueva frase.
         trozos.push(actual);
-        actual = frase;
+        // Si la nueva frase sola ya supera el límite, se parte por palabras.
+        if (frase.length > trozosMaximos) {
+          const partes = partirFraseLarga(frase);
+          // La última parte queda en "actual" para seguir acumulando.
+          trozos.push(...partes.slice(0, -1));
+          actual = partes[partes.length - 1];
+        } else {
+          actual = frase;
+        }
+      } else if (candidato.length > trozosMaximos) {
+        // La frase sola ya supera el límite (actual estaba vacío).
+        const partes = partirFraseLarga(frase);
+        trozos.push(...partes.slice(0, -1));
+        actual = partes[partes.length - 1];
       } else {
         actual = candidato;
       }
