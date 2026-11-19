@@ -149,7 +149,9 @@
         <small>Estás escuchando</small>
         <h1 id="titulo-lector"></h1>
       </div>
-      <span class="encabezado-hueco"></span>
+      <button type="button" class="boton-icono" id="btn-motor-voz" aria-label="Cambiar a la voz del sistema" aria-pressed="false" data-oculto>
+        <svg class="icono" aria-hidden="true"><use href="#i-ondas"/></svg>
+      </button>
     </header>
 
     <section class="reproductor">
@@ -158,6 +160,7 @@
       <div class="lector-titulos">
         <h2 class="capitulo-actual" id="capitulo-actual"></h2>
         <p class="progreso-texto" id="progreso-lector"></p>
+        <p class="progreso-texto" id="voz-actual"></p>
       </div>
 
       <p class="frase-actual" id="frase-actual" aria-hidden="true"></p>
@@ -243,27 +246,15 @@
         <button type="button" class="boton-texto" data-cerrar-hoja>Cancelar</button>
       </section>
 
-      <!-- Paso 2: cómo se va a leer (común a EPUB y PDF) -->
+      <!-- Paso 2: voz de la narración (común a EPUB y PDF) -->
       <section class="hoja-paso" id="paso-voz" hidden>
-        <h2 class="hoja-titulo">¿Cómo querés escucharlo?</h2>
-        <div class="hoja-opciones hoja-opciones-col">
-          <label class="opcion-radio opcion-radio-desc">
-            <input type="radio" name="motor-voz" value="sistema" checked>
-            <span class="opcion-radio-texto">
-              <strong>Voz del sistema</strong>
-              <small>Gratis e instantánea. La voz que ya conocés.</small>
-            </span>
-          </label>
-          <label class="opcion-radio opcion-radio-desc">
-            <input type="radio" name="motor-voz" value="narracion">
-            <span class="opcion-radio-texto">
-              <strong>Voz narrada</strong>
-              <small>Más natural. La primera vez que escuchás cada capítulo tarda unos segundos en generarse.</small>
-            </span>
-          </label>
-        </div>
+        <h2 class="hoja-titulo">Elegí la voz</h2>
+        <p class="hoja-desc">
+          Al terminar de importar, Audix genera el audio del libro en segundo plano.
+          Mientras tanto se puede leer con la voz del sistema.
+        </p>
 
-        <div id="opciones-narracion-importar" hidden>
+        <div id="opciones-narracion-importar">
           <p class="aviso" id="aviso-voces" aria-live="polite"></p>
           <label class="campo">
             <span class="campo-etiqueta">Voz</span>
@@ -356,23 +347,10 @@
     <div class="hoja">
       <span class="hoja-tirador" aria-hidden="true"></span>
       <h2 class="hoja-titulo">Cambiar voz</h2>
-      <div class="hoja-opciones hoja-opciones-col">
-        <label class="opcion-radio opcion-radio-desc">
-          <input type="radio" name="motor-voz-editar" value="sistema">
-          <span class="opcion-radio-texto">
-            <strong>Voz del sistema</strong>
-            <small>Gratis e instantánea.</small>
-          </span>
-        </label>
-        <label class="opcion-radio opcion-radio-desc">
-          <input type="radio" name="motor-voz-editar" value="narracion">
-          <span class="opcion-radio-texto">
-            <strong>Voz narrada</strong>
-            <small>Si cambiás la voz o el tono, se vuelve a generar.</small>
-          </span>
-        </label>
-      </div>
-      <div id="opciones-narracion-editar" hidden>
+      <p class="hoja-desc" id="desc-voz">
+        Si cambiás la voz o el tono, el audio se vuelve a generar en segundo plano.
+      </p>
+      <div id="opciones-narracion-editar">
         <label class="campo">
           <span class="campo-etiqueta">Voz</span>
           <select id="selector-voz-editar"></select>
