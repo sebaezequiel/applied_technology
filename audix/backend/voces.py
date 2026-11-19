@@ -17,7 +17,15 @@ VOCES_NARRACION = {
     "es-ES-ElviraNeural": "Elvira (España, femenino)",
     "es-MX-JorgeNeural": "Jorge (México, masculino)",
     "es-MX-DaliaNeural": "Dalia (México, femenino)",
+    # Inglés: voces de narración (categorías "Novel" y "News" de edge-tts).
+    "en-US-AriaNeural": "Aria (Estados Unidos, femenina)",
+    "en-US-GuyNeural": "Guy (Estados Unidos, masculino)",
+    "en-GB-SoniaNeural": "Sonia (Reino Unido, femenina)",
+    "en-GB-RyanNeural": "Ryan (Reino Unido, masculino)",
 }
+
+# Idioma de cada voz según su id (el prefijo "es-AR", "en-US", etc.), para agrupar en la PWA.
+NOMBRES_DE_IDIOMA = {"es": "Español", "en": "Inglés"}
 
 VOZ_NARRACION_PREDETERMINADA = "es-AR-TomasNeural"
 
@@ -69,7 +77,10 @@ def voz_del_libro(indice: dict) -> dict:
 def lista_para_frontend() -> dict:
     """Catálogo que la PWA necesita para pintar los selectores de importación."""
     return {
-        "voces": [{"id": id_, "nombre": nombre} for id_, nombre in VOCES_NARRACION.items()],
+        "voces": [
+            {"id": id_, "nombre": nombre, "idioma": NOMBRES_DE_IDIOMA.get(id_.split("-")[0], id_.split("-")[0])}
+            for id_, nombre in VOCES_NARRACION.items()
+        ],
         "tonos": [{"id": id_, "nombre": datos["nombre"]} for id_, datos in TONOS.items()],
         "voz_predeterminada": VOZ_NARRACION_PREDETERMINADA,
     }
