@@ -1161,7 +1161,9 @@ function pintarAjustesDeVoz() {
   }
 }
 
-// Icono del encabezado y línea "Voz ...": qué voz suena y si se puede cambiar.
+// Icono del encabezado: qué voz suena y si se puede cambiar. Los avisos del
+// cambio de voz se muestran como mensaje breve, una sola vez.
+let ultimoAvisoDeVoz = "";
 function pintarMotorDeVoz(estado) {
   const esNarrado = estado.motorDelLibro === "narracion";
   const boton = $("btn-motor-voz");
@@ -1170,14 +1172,8 @@ function pintarMotorDeVoz(estado) {
   boton.setAttribute("aria-pressed", String(esNarrado && sistema));
   boton.setAttribute("aria-label", sistema ? "Volver a la voz narrada" : "Cambiar a la voz del sistema");
 
-  let texto = "Voz del sistema";
-  if (!sistema) {
-    const vozId = libroSonando && libroSonando.voz && libroSonando.voz.voz_id;
-    texto = `Voz narrada · ${nombreDeVoz(vozId)}`;
-  } else if (estado.narracionPendiente) {
-    texto = "Voz del sistema · la narración todavía se está generando";
-  }
-  $("voz-actual").textContent = estado.aviso || texto;
+  if (estado.aviso && estado.aviso !== ultimoAvisoDeVoz) toast(estado.aviso);
+  ultimoAvisoDeVoz = estado.aviso || "";
 }
 
 function mensajeDeEstadoLector(estado) {
