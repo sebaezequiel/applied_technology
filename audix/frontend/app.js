@@ -384,13 +384,16 @@ function pintarBiblioteca() {
     const estado = document.createElement("span");
     estado.className = "detalle";
     if (avance) {
-      estado.textContent = `Capítulo ${avance.numero} de ${libro.capitulos}`;
+      estado.textContent =
+        `Capítulo ${avance.numero} de ${libro.capitulos}` + sufijoDeAudio(libro.audio);
       const barra = document.createElement("span");
       barra.className = "barra-fina";
       barra.appendChild(document.createElement("span")).style.width = `${Math.round(avance.fraccion * 100)}%`;
       texto.append(estado, barra);
     } else {
-      estado.textContent = `${libro.capitulos} ${libro.capitulos === 1 ? "capítulo" : "capítulos"} · Sin empezar`;
+      estado.textContent =
+        `${libro.capitulos} ${libro.capitulos === 1 ? "capítulo" : "capítulos"} · Sin empezar` +
+        sufijoDeAudio(libro.audio);
       texto.append(estado);
     }
 
@@ -404,6 +407,11 @@ function pintarBiblioteca() {
   });
 }
 
+function sufijoDeAudio(audio) {
+  const texto = textoDeAudio(audio);
+  return texto ? ` · ${texto}` : "";
+}
+
 async function renderBiblioteca() {
   // Con lista previa se pinta al instante y se actualiza por detrás.
   if (librosCache) pintarBiblioteca();
@@ -414,6 +422,7 @@ async function renderBiblioteca() {
     if (!respuesta.ok) throw new Error(await mensajeDeError(respuesta));
     librosCache = await respuesta.json();
     pintarBiblioteca();
+    vigilarAudio();
   } catch (error) {
     if (librosCache) {
       toast(textoDeError(error));
@@ -456,12 +465,13 @@ function pintarLibro() {
   const total = libro.capitulos.length;
   const progreso = Lector.leerProgreso(libro.id);
 
-  const esNarracion = libro.voz && libro.voz.motor === "narracion";
   $("titulo-libro").textContent = libro.titulo;
   $("autor-libro").textContent = libro.autor || "Autor desconocido";
   $("meta-libro").textContent =
-    `${total} ${total === 1 ? "capítulo" : "capítulos"}` + (esNarracion ? " · Voz narrada" : "");
+    `${total} ${total === 1 ? "capítulo" : "capítulos"}` + sufijoDeAudio(libro.audio);
   $("portada-libro").replaceChildren(crearPortada(libro.portada, libro.titulo, "portada-grande"));
+  reintentarAudioSiHaceFalta(libro);
+  vigilarAudio();
 
   const continuar = $("btn-continuar-libro");
   continuar.disabled = total === 0;
@@ -701,14 +711,13 @@ function nombreDeTono(id) {
   return (tono && tono.nombre) || "Normal";
 }
 
-// Lee la config elegida en el paso "¿Cómo querés escucharlo?" del modal de importar.
+// Lee la voz y el tono elegidos en el paso "Elegí la voz" del modal de importar.
+// Todos los libros se importan con narración; la voz del sistema queda de respaldo.
 function configDeVozImportar() {
-  const motor = document.querySelector('input[name="motor-voz"]:checked').value;
-  if (motor !== "narracion") return { motor: "sistema", voz_id: "", tono: "normal" };
   return {
     motor: "narracion",
     voz_id: $("selector-voz-importar").value,
-    tono: $("selector-tono-importar").value,
+    tono: $("selector-tono-importar").value || "normal",
   };
 }
 
@@ -721,12 +730,20 @@ function parametrosDeVoz(config) {
 function abrirCambioDeVoz(libro) {
   libroParaCambiarVoz = libro;
   const config = libro.voz || { motor: "sistema", voz_id: null, tono: "normal" };
-  document.querySelector(`input[name="motor-voz-editar"][value="${config.motor}"]`).checked = true;
-  $("opciones-narracion-editar").hidden = config.motor !== "narracion";
+  const sinAudio = config.motor !== "narracion";
+  $("desc-voz").textContent = sinAudio
+    ? "Este libro todavía se lee con la voz del sistema. Elegí una voz y Audix genera su audio en segundo plano."
+    : "Si cambiás la voz o el tono, el audio se vuelve a generar en segundo plano.";
+  $("btn-guardar-voz").textContent = sinAudio ? "Generar audio" : "Guardar";
   $("aviso-voz").textContent = "";
   cargarCatalogoVoces().then(() => {
+    if (!catalogoVoces) {
+      $("aviso-voz").textContent =
+        "No se pudieron cargar las voces. Reiniciá el servidor de Audix y volvé a intentar.";
+      return;
+    }
     pintarSelectoresDeVoz($("selector-voz-editar"), $("selector-tono-editar"));
-    if (config.voz_id) $("selector-voz-editar").value = config.voz_id;
+    $("selector-voz-editar").value = config.voz_id || catalogoVoces.voz_predeterminada;
     $("selector-tono-editar").value = config.tono || "normal";
   });
   abrirHoja("hoja-voz");
@@ -736,10 +753,15 @@ async function guardarVoz() {
   const aviso = $("aviso-voz");
   const boton = $("btn-guardar-voz");
   const libro = libroParaCambiarVoz;
-  const motor = document.querySelector('input[name="motor-voz-editar"]:checked').value;
-  const cuerpo = motor === "narracion"
-    ? { motor, voz_id: $("selector-voz-editar").value, tono: $("selector-tono-editar").value }
-    : { motor: "sistema", tono: "normal" };
+  if (!$("selector-voz-editar").value) {
+    aviso.textContent = "No hay voces para elegir. Reiniciá el servidor de Audix y volvé a intentar.";
+    return;
+  }
+  const cuerpo = {
+    motor: "narracion",
+    voz_id: $("selector-voz-editar").value,
+    tono: $("selector-tono-editar").value,
+  };
 
   boton.disabled = true;
   try {
@@ -753,9 +775,9 @@ async function guardarVoz() {
       return;
     }
     const datos = await respuesta.json();
-    sincronizarVozLibro(libro.id, datos.voz);
+    sincronizarVozLibro(libro.id, datos);
     cerrarHoja();
-    toast("Voz actualizada.");
+    toast("Generando el audio en segundo plano.");
   } catch {
     aviso.textContent = mensajeConexion();
   } finally {
@@ -763,24 +785,97 @@ async function guardarVoz() {
   }
 }
 
-// Lleva el cambio de voz a todas las vistas que puedan tener una copia del libro.
-function sincronizarVozLibro(libroId, voz) {
+// Lleva el cambio de voz (y el estado del audio) a todas las vistas que puedan tener una copia del libro.
+function sincronizarVozLibro(libroId, datos) {
+  const { voz, audio } = datos;
   if (libroActual && libroActual.id === libroId) {
     libroActual.voz = voz;
+    libroActual.audio = audio;
     pintarLibro();
   }
   if (librosCache) {
     const enLista = librosCache.find((l) => l.id === libroId);
-    if (enLista) enLista.voz = voz;
+    if (enLista) {
+      enLista.voz = voz;
+      enLista.audio = audio;
+    }
   }
   if (libroSonando && libroSonando.id === libroId) {
     libroSonando.voz = voz;
-    // El motor cambió: hay que volver a abrir el capítulo para que tome el nuevo.
+    libroSonando.audio = audio;
+    // La voz cambió: hay que volver a abrir el capítulo para que tome la nueva.
     Lector.cerrar();
     pintarAjustesDeVoz();
     renderLector(Lector.estado);
     actualizarMini();
   }
+  vigilarAudio();
+}
+
+// ---------- Audio del libro (se genera en segundo plano al importar) ----------
+
+function textoDeAudio(audio) {
+  if (!audio) return "";
+  if (audio.error && !audio.generando) return "Audio pausado por un error";
+  if (audio.listos >= audio.total) return "Audio listo";
+  return `Generando audio ${audio.listos}/${audio.total}`;
+}
+
+let _timerAudio = null;
+const _reintentosDeAudioPedidos = new Set();
+
+// Mientras algún libro está generando su audio, actualiza el avance cada pocos
+// segundos (solo en la biblioteca y en la pantalla del libro).
+function vigilarAudio() {
+  clearTimeout(_timerAudio);
+  const generando =
+    (librosCache || []).some((l) => l.audio && l.audio.generando) ||
+    Boolean(libroActual && libroActual.audio && libroActual.audio.generando);
+  if (!generando) return;
+  _timerAudio = setTimeout(async () => {
+    try {
+      if (pantallaActual === "biblioteca") {
+        const respuesta = await Sesion.pedir(`${API}/libros`);
+        if (respuesta.ok) {
+          librosCache = await respuesta.json();
+          pintarBiblioteca();
+        }
+      } else if (pantallaActual === "libro" && libroActual) {
+        const respuesta = await Sesion.pedir(`${API}/libros/${libroActual.id}`);
+        if (respuesta.ok) {
+          const datos = await respuesta.json();
+          libroActual.audio = datos.audio;
+          pintarLibro();
+        }
+      } else {
+        return; // en otras pantallas no hace falta; se retoma al volver
+      }
+    } catch {
+      // Sin conexión: se reintenta en el próximo ciclo.
+    }
+    vigilarAudio();
+  }, 5000);
+}
+
+// Si el audio se frenó por un error (por ejemplo, la PC estuvo sin internet),
+// al abrir el libro se pide retomarlo, una vez por sesión.
+function reintentarAudioSiHaceFalta(libro) {
+  const audio = libro.audio;
+  if (!audio || !audio.error || audio.generando || _reintentosDeAudioPedidos.has(libro.id)) return;
+  _reintentosDeAudioPedidos.add(libro.id);
+  Sesion.pedir(`${API}/libros/${libro.id}/audio`, { method: "POST" })
+    .then((respuesta) => (respuesta.ok ? respuesta.json() : null))
+    .then((estado) => {
+      if (!estado || !libroActual || libroActual.id !== libro.id) return;
+      libroActual.audio = {
+        listos: estado.listos.length,
+        total: estado.total,
+        generando: estado.generando,
+        error: estado.error,
+      };
+      pintarLibro();
+    })
+    .catch(() => {});
 }
 
 // ---------- Importación ----------
@@ -799,8 +894,7 @@ function limpiarImportacion() {
   progreso.value = 0;
   $("btn-elegir-epub").disabled = false;
   $("btn-elegir-pdf").disabled = false;
-  document.querySelector('input[name="motor-voz"][value="sistema"]').checked = true;
-  $("opciones-narracion-importar").hidden = true;
+  $("aviso-voces").textContent = "";
 }
 
 function mostrarPaso(id) {
@@ -813,7 +907,20 @@ function mostrarPaso(id) {
 function abrirPasoVoz(formato) {
   formatoImportacion = formato;
   mostrarPaso("paso-voz");
-  cargarCatalogoVoces().then(() => {
+  cargarVocesParaImportar();
+}
+
+// Pinta los selectores de la importación. Si el catálogo no llega (por
+// ejemplo, el servidor no se reinició después de actualizar), avisa en vez
+// de dejar los selectores vacíos.
+function cargarVocesParaImportar() {
+  $("aviso-voces").textContent = "";
+  return cargarCatalogoVoces().then(() => {
+    if (!catalogoVoces) {
+      $("aviso-voces").textContent =
+        "No se pudieron cargar las voces. Reiniciá el servidor de Audix y volvé a intentar.";
+      return;
+    }
     pintarSelectoresDeVoz($("selector-voz-importar"), $("selector-tono-importar"));
   });
 }
@@ -912,7 +1019,8 @@ async function cargarImportaciones() {
   let trabajos = [];
   try {
     const respuesta = await Sesion.pedir(`${API}/trabajos`);
-    if (respuesta.ok) trabajos = await respuesta.json();
+    // Los trabajos "audio" son pedidos del lector, no importaciones.
+    if (respuesta.ok) trabajos = (await respuesta.json()).filter((t) => t.tipo !== "audio");
   } catch {
     // Sin conexión: se reintenta en el próximo ciclo.
   }
@@ -1033,21 +1141,39 @@ function pintarLector() {
   renderLector(Lector.estado);
 }
 
-// Con voz narrada no hay selector de voz (es fija, elegida al importar o
-// desde "Cambiar voz"); en su lugar se muestra cuál es y un botón para cambiarla.
+// Selector de voz del sistema: solo cuando suena la voz del sistema. Si el libro
+// es narrado, un botón muestra la voz y el tono y permite cambiarlos.
 function pintarAjustesDeVoz() {
-  const esNarracion = Boolean(libroSonando && libroSonando.voz && libroSonando.voz.motor === "narracion");
-  $("campo-voz-sistema").hidden = esNarracion;
-  $("campo-voz-narracion").hidden = !esNarracion;
-  if (esNarracion) {
+  const esNarrado = Boolean(libroSonando && libroSonando.voz && libroSonando.voz.motor === "narracion");
+  $("campo-voz-sistema").hidden = Lector.estado.motor !== "sistema";
+  $("campo-voz-narracion").hidden = !esNarrado;
+  if (esNarrado) {
     const { voz_id: vozId, tono } = libroSonando.voz;
     $("btn-cambiar-voz-lector").textContent = `${nombreDeVoz(vozId)} · ${nombreDeTono(tono)}`;
   }
 }
 
+// Icono del encabezado y línea "Voz ...": qué voz suena y si se puede cambiar.
+function pintarMotorDeVoz(estado) {
+  const esNarrado = estado.motorDelLibro === "narracion";
+  const boton = $("btn-motor-voz");
+  const sistema = estado.motor === "sistema";
+  boton.toggleAttribute("data-oculto", !esNarrado);
+  boton.setAttribute("aria-pressed", String(esNarrado && sistema));
+  boton.setAttribute("aria-label", sistema ? "Volver a la voz narrada" : "Cambiar a la voz del sistema");
+
+  let texto = "Voz del sistema";
+  if (!sistema) {
+    const vozId = libroSonando && libroSonando.voz && libroSonando.voz.voz_id;
+    texto = `Voz narrada · ${nombreDeVoz(vozId)}`;
+  } else if (estado.narracionPendiente) {
+    texto = "Voz del sistema · la narración todavía se está generando";
+  }
+  $("voz-actual").textContent = estado.aviso || texto;
+}
+
 function mensajeDeEstadoLector(estado) {
   if (estado.cargando) return "Cargando capítulo…";
-  if (estado.generando) return "Generando la narración… puede tardar unos segundos.";
   return Lector.textoActual();
 }
 
@@ -1069,6 +1195,8 @@ function renderLector(estado) {
     $("capitulo-actual").textContent = capitulo ? capitulo.titulo : "";
     $("progreso-lector").textContent = `Capítulo ${estado.numero} de ${estado.total}`;
     $("frase-actual").textContent = mensajeDeEstadoLector(estado);
+    pintarMotorDeVoz(estado);
+    pintarAjustesDeVoz();
 
     const barra = $("barra-progreso");
     barra.max = Math.max(estado.trozos.length - 1, 1);
@@ -1083,7 +1211,7 @@ function renderLector(estado) {
     const boton = $("btn-reproducir");
     $("icono-reproducir").setAttribute("href", estado.reproduciendo ? "#i-pausa" : "#i-play");
     boton.setAttribute("aria-label", estado.reproduciendo ? "Pausar" : "Reproducir");
-    boton.classList.toggle("cargando", estado.cargando || estado.generando);
+    boton.classList.toggle("cargando", estado.cargando);
     $("btn-anterior").disabled = estado.numero <= 1;
     $("btn-siguiente").disabled = estado.numero >= estado.total;
   }
@@ -1203,12 +1331,6 @@ function conectarEventos() {
   $("opcion-pdf").addEventListener("click", () => abrirPasoVoz("pdf"));
 
   // Paso 2: cómo se va a escuchar (muestra u oculta voz y tono narrados).
-  document.querySelectorAll('input[name="motor-voz"]').forEach((radio) => {
-    radio.addEventListener("change", () => {
-      const motor = document.querySelector('input[name="motor-voz"]:checked').value;
-      $("opciones-narracion-importar").hidden = motor !== "narracion";
-    });
-  });
   $("btn-continuar-voz").addEventListener("click", () => {
     mostrarPaso(formatoImportacion === "pdf" ? "paso-pdf-tipo" : "paso-epub");
   });
@@ -1259,13 +1381,8 @@ function conectarEventos() {
   $("btn-confirmar-borrar").addEventListener("click", borrarLibroActual);
 
   // Hoja "Cambiar voz" (desde el menú del libro o desde el lector)
-  document.querySelectorAll('input[name="motor-voz-editar"]').forEach((radio) => {
-    radio.addEventListener("change", () => {
-      const motor = document.querySelector('input[name="motor-voz-editar"]:checked').value;
-      $("opciones-narracion-editar").hidden = motor !== "narracion";
-    });
-  });
   $("btn-guardar-voz").addEventListener("click", guardarVoz);
+  $("btn-motor-voz").addEventListener("click", () => Lector.alternarMotor());
   $("btn-cambiar-voz-lector").addEventListener("click", () => abrirCambioDeVoz(libroSonando));
 
   // Lector

@@ -1,6 +1,7 @@
 import io
 import json
 import sys
+import threading
 from pathlib import Path
 
 import pytest
@@ -73,7 +74,15 @@ def test_health(cliente):
 def test_lista_libros(cliente):
     libros = cliente.get("/libros").json()
     assert libros == [
-        {"id": "libro-prueba", "titulo": "Libro de prueba", "autor": "Autor", "capitulos": 1, "portada": None}
+        {
+            "id": "libro-prueba",
+            "titulo": "Libro de prueba",
+            "autor": "Autor",
+            "capitulos": 1,
+            "voz": {"motor": "sistema", "voz_id": None, "tono": "normal"},
+            "audio": None,
+            "portada": None,
+        }
     ]
 
 
@@ -557,3 +566,199 @@ def test_cambiar_voz_borra_el_audio_ya_generado_si_cambia_de_verdad(cliente, mon
     esperar_trabajo(cliente, trabajo2["id"])
     cliente.patch("/libros/libro-prueba/voz", json={"motor": "narracion", "voz_id": "es-AR-TomasNeural", "tono": "oscuro"})
     assert (tmp_path / "libro-prueba" / "audio" / "001.mp3").exists()
+
+
+# ---------------------------------------------------------------------------
+# Audio automático: al importar, el libro entero se genera en segundo plano
+# ---------------------------------------------------------------------------
+
+def _crear_libro_en_disco(carpeta_datos, libro_id: str, capitulos: int, motor: str = "narracion") -> Path:
+    carpeta = carpeta_datos / libro_id
+    carpeta.mkdir()
+    indice = {"titulo": libro_id, "autor": "A", "capitulos": [], "voz": {"motor": motor, "voz_id": None, "tono": "normal"}}
+    if motor == "narracion":
+        indice["voz"]["voz_id"] = "es-AR-TomasNeural"
+    for numero in range(1, capitulos + 1):
+        (carpeta / f"{numero:03d}.txt").write_text(f"Texto del capítulo {numero}.", encoding="utf-8")
+        indice["capitulos"].append(
+            {"numero": numero, "titulo": f"Cap {numero}", "archivo": f"{numero:03d}.txt", "caracteres": 20}
+        )
+    (carpeta / "indice.json").write_text(json.dumps(indice, ensure_ascii=False), encoding="utf-8")
+    return carpeta
+
+
+def _esperar_audio(cliente, libro_id: str, limite: float = 10.0) -> dict:
+    """Espera a que el hilo de audio termine con el libro y devuelve su estado."""
+    fin = _time.time() + limite
+    while _time.time() < fin:
+        estado = cliente.get(f"/libros/{libro_id}/audio").json()
+        if not estado["generando"]:
+            return estado
+        _time.sleep(0.05)
+    raise AssertionError("El audio no terminó a tiempo")
+
+
+@pytest.fixture
+def audio_automatico(monkeypatch):
+    """Enciende la generación en segundo plano, sin esperas ni red."""
+    monkeypatch.setattr(main, "AUDIO_AUTOMATICO", True)
+    monkeypatch.setattr(main, "ESPERA_ENTRE_REINTENTOS", 0)
+    monkeypatch.setattr(main, "ESPERA_ENTRE_RONDAS", 0)
+    main._errores_audio.clear()
+    yield
+    main._errores_audio.clear()
+
+
+def test_importar_sin_elegir_voz_usa_narracion_y_no_genera_con_la_opcion_apagada(cliente, tmp_path):
+    contenido = crear_epub_bytes("Narrado por defecto", tmp_path)
+    datos = cliente.post(
+        "/libros", files={"archivo": ("libro.epub", contenido, "application/epub+zip")}
+    ).json()
+    assert datos["voz"]["motor"] == "narracion"
+    assert datos["voz"]["voz_id"] == "es-AR-TomasNeural"
+    assert datos["audio"] == {"listos": 0, "total": 1, "generando": False, "error": None}
+
+
+def test_importar_epub_genera_el_audio_del_libro_en_segundo_plano(cliente, tmp_path, monkeypatch, audio_automatico):
+    textos = []
+    monkeypatch.setattr(main, "generar_audio_capitulo", _generador_de_audio_falso(textos))
+    contenido = crear_epub_bytes("Libro con audio", tmp_path)
+    datos = cliente.post(
+        "/libros", files={"archivo": ("libro.epub", contenido, "application/epub+zip")}
+    ).json()
+
+    estado = _esperar_audio(cliente, datos["id"])
+    assert estado["listos"] == [1]
+    assert estado["error"] is None
+    assert len(textos) == 1
+    assert cliente.get(f"/libros/{datos['id']}/capitulos/1/audio/marcas").status_code == 200
+    # La biblioteca y el detalle muestran el avance.
+    assert cliente.get(f"/libros/{datos['id']}").json()["audio"]["listos"] == 1
+    en_lista = next(l for l in cliente.get("/libros").json() if l["id"] == datos["id"])
+    assert en_lista["audio"]["listos"] == 1
+
+
+def test_el_audio_se_genera_en_orden_y_solo_lo_que_falta(cliente, tmp_path, monkeypatch, audio_automatico):
+    carpeta = _crear_libro_en_disco(tmp_path, "libro-largo", 3)
+    # El capítulo 2 ya tenía audio (de una corrida anterior que se cortó).
+    (carpeta / "audio").mkdir()
+    (carpeta / "audio" / "002.mp3").write_bytes(b"viejo")
+    (carpeta / "audio" / "002.json").write_text("[]", encoding="utf-8")
+
+    textos = []
+    monkeypatch.setattr(main, "generar_audio_capitulo", _generador_de_audio_falso(textos))
+    main._encolar_audio("libro-largo")
+
+    estado = _esperar_audio(cliente, "libro-largo")
+    assert estado["listos"] == [1, 2, 3]
+    assert textos == ["Texto del capítulo 1.", "Texto del capítulo 3."]
+    assert (carpeta / "audio" / "002.mp3").read_bytes() == b"viejo"
+
+
+def test_al_arrancar_se_retoma_el_audio_pendiente(cliente, tmp_path, monkeypatch, audio_automatico):
+    _crear_libro_en_disco(tmp_path, "pendiente", 2)
+    _crear_libro_en_disco(tmp_path, "con-voz-de-sistema", 2, motor="sistema")
+    textos = []
+    monkeypatch.setattr(main, "generar_audio_capitulo", _generador_de_audio_falso(textos))
+
+    main._reanudar_audio_pendiente()  # es lo que corre el servidor al arrancar
+
+    assert _esperar_audio(cliente, "pendiente")["listos"] == [1, 2]
+    assert len(textos) == 2  # el libro con voz del sistema no se toca
+    assert not (tmp_path / "con-voz-de-sistema" / "audio").exists()
+
+
+def test_un_capitulo_que_falla_se_reintenta(cliente, tmp_path, monkeypatch, audio_automatico):
+    _crear_libro_en_disco(tmp_path, "inestable", 1)
+    intentos = []
+
+    def generar(texto, voz_id, tono, destino_mp3):
+        intentos.append(1)
+        if len(intentos) < 3:
+            raise RuntimeError("sin conexión")
+        destino_mp3.write_bytes(b"mp3")
+        return [{"texto": texto, "inicio": 0.0, "fin": 1.0}]
+
+    monkeypatch.setattr(main, "generar_audio_capitulo", generar)
+    main._encolar_audio("inestable")
+
+    estado = _esperar_audio(cliente, "inestable")
+    assert estado["listos"] == [1]
+    assert estado["error"] is None
+    assert len(intentos) == 3
+
+
+def test_si_siempre_falla_queda_el_error_y_se_puede_reintentar(cliente, tmp_path, monkeypatch, audio_automatico):
+    _crear_libro_en_disco(tmp_path, "sin-internet", 2)
+    monkeypatch.setattr(main, "RONDAS_CON_FALLOS_MAXIMAS", 2)
+    en_linea = {"si": False}
+
+    def generar(texto, voz_id, tono, destino_mp3):
+        if not en_linea["si"]:
+            raise RuntimeError("sin conexión")
+        destino_mp3.write_bytes(b"mp3")
+        return [{"texto": texto, "inicio": 0.0, "fin": 1.0}]
+
+    monkeypatch.setattr(main, "generar_audio_capitulo", generar)
+    main._encolar_audio("sin-internet")
+    estado = _esperar_audio(cliente, "sin-internet")
+    assert estado["listos"] == []
+    assert "sin conexión" in estado["error"]
+
+    # Vuelve internet: pedirlo de nuevo retoma desde donde estaba.
+    en_linea["si"] = True
+    assert cliente.post("/libros/sin-internet/audio").status_code == 202
+    estado = _esperar_audio(cliente, "sin-internet")
+    assert estado["listos"] == [1, 2]
+    assert estado["error"] is None
+
+
+def test_cambiar_la_voz_regenera_el_audio_en_segundo_plano(cliente, tmp_path, monkeypatch, audio_automatico):
+    _crear_libro_en_disco(tmp_path, "cambiante", 2)
+    vistos = []
+
+    def generar(texto, voz_id, tono, destino_mp3):
+        vistos.append((voz_id, tono))
+        destino_mp3.write_bytes(b"mp3")
+        return [{"texto": texto, "inicio": 0.0, "fin": 1.0}]
+
+    monkeypatch.setattr(main, "generar_audio_capitulo", generar)
+    main._encolar_audio("cambiante")
+    assert _esperar_audio(cliente, "cambiante")["listos"] == [1, 2]
+
+    cliente.patch("/libros/cambiante/voz", json={"motor": "narracion", "voz_id": "es-AR-ElenaNeural", "tono": "oscuro"})
+    estado = _esperar_audio(cliente, "cambiante")
+    assert estado["listos"] == [1, 2]
+    assert vistos[-2:] == [("es-AR-ElenaNeural", "oscuro")] * 2
+
+
+def test_pasar_un_libro_viejo_a_narracion_genera_su_audio(cliente, tmp_path, monkeypatch, audio_automatico):
+    textos = []
+    monkeypatch.setattr(main, "generar_audio_capitulo", _generador_de_audio_falso(textos))
+    cliente.patch("/libros/libro-prueba/voz", json={"motor": "narracion"})
+    assert _esperar_audio(cliente, "libro-prueba")["listos"] == [1]
+    assert textos == ["Primer capítulo."]
+
+
+def test_pedir_el_audio_de_un_libro_con_voz_de_sistema_devuelve_400(cliente):
+    assert cliente.post("/libros/libro-prueba/audio").status_code == 400
+
+
+def test_estado_del_audio_de_un_libro_inexistente_devuelve_404(cliente):
+    assert cliente.get("/libros/no-existe/audio").status_code == 404
+
+
+def test_borrar_el_libro_mientras_se_genera_no_deja_carpeta_huerfana(cliente, tmp_path, monkeypatch, audio_automatico):
+    _crear_libro_en_disco(tmp_path, "efimero", 1)
+    espera = threading.Event()
+    monkeypatch.setattr(main, "generar_audio_capitulo", _generador_de_audio_falso(espera=espera))
+    main._encolar_audio("efimero")
+    _time.sleep(0.1)  # el hilo ya está generando el capítulo
+
+    assert cliente.delete("/libros/efimero").status_code == 204
+    espera.set()
+    fin = _time.time() + 5
+    while "efimero" in main._libros_con_audio_en_cola and _time.time() < fin:
+        _time.sleep(0.05)
+
+    assert not (tmp_path / "efimero").exists()

@@ -170,6 +170,14 @@ body.con-mini .pantalla {
   background: var(--superficie);
 }
 
+/* Cambio de voz en el lector: reserva su lugar aunque no se use, para no mover el título. */
+#btn-motor-voz[data-oculto] { visibility: hidden; }
+#btn-motor-voz[aria-pressed="true"] {
+  background: var(--clay-suave);
+  border-color: var(--clay);
+  color: var(--clay-fuerte);
+}
+
 .boton-texto {
   display: block;
   width: 100%;
