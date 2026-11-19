@@ -685,12 +685,20 @@ async function cargarCatalogoVoces() {
 
 function pintarSelectoresDeVoz(selectorVoz, selectorTono) {
   if (!catalogoVoces) return;
+  // Las voces se agrupan por idioma (Español, Inglés), en el orden en que llegan.
   selectorVoz.innerHTML = "";
+  const grupos = new Map();
   catalogoVoces.voces.forEach((voz) => {
+    const idioma = voz.idioma || "Otros";
+    if (!grupos.has(idioma)) grupos.set(idioma, document.createElement("optgroup"));
     const opcion = document.createElement("option");
     opcion.value = voz.id;
     opcion.textContent = voz.nombre;
-    selectorVoz.appendChild(opcion);
+    grupos.get(idioma).appendChild(opcion);
+  });
+  grupos.forEach((grupo, idioma) => {
+    grupo.label = idioma;
+    selectorVoz.appendChild(grupo);
   });
   selectorTono.innerHTML = "";
   catalogoVoces.tonos.forEach((tono) => {

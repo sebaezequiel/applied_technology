@@ -407,6 +407,10 @@ def test_catalogo_de_voces(cliente):
     catalogo = cliente.get("/voces").json()
     ids = [voz["id"] for voz in catalogo["voces"]]
     assert "es-AR-TomasNeural" in ids
+    idiomas = {voz["id"]: voz["idioma"] for voz in catalogo["voces"]}
+    assert idiomas["es-AR-TomasNeural"] == "Español"
+    assert idiomas["en-US-AriaNeural"] == "Inglés"
+    assert idiomas["en-GB-RyanNeural"] == "Inglés"
     assert catalogo["voz_predeterminada"] in ids
     assert {tono["id"] for tono in catalogo["tonos"]} == {"normal", "oscuro", "grave"}
 
@@ -762,3 +766,13 @@ def test_borrar_el_libro_mientras_se_genera_no_deja_carpeta_huerfana(cliente, tm
         _time.sleep(0.05)
 
     assert not (tmp_path / "efimero").exists()
+
+
+def test_importar_con_voz_en_ingles_se_acepta(cliente, tmp_path):
+    contenido = crear_epub_bytes("Libro en inglés", tmp_path)
+    respuesta = cliente.post(
+        "/libros?motor_voz=narracion&voz_id=en-US-GuyNeural&tono=grave",
+        files={"archivo": ("libro.epub", contenido, "application/epub+zip")},
+    )
+    assert respuesta.status_code == 201
+    assert respuesta.json()["voz"] == {"motor": "narracion", "voz_id": "en-US-GuyNeural", "tono": "grave"}
